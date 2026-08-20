@@ -45,7 +45,7 @@ export class PunchesService implements OnModuleInit, OnModuleDestroy {
   private readonly attendanceRepo: AttendanceLogRepository;
   private readonly mappingRepo: DeviceEmployeeMappingRepository;
   private pollIntervalTimer: NodeJS.Timeout | null = null;
-  private lastSyncedAcsSerial = 0;
+  private lastSyncedSerialMap = new Map<number, number>();
 
   constructor(
     @Inject(DatabaseClient) private readonly db: DatabaseClient,
@@ -69,7 +69,7 @@ export class PunchesService implements OnModuleInit, OnModuleDestroy {
   }
 
   private startBackgroundPoller() {
-    // Automatically poll real devices every 4 seconds so punches show up on the live stream automatically!
+    // Automatically poll real devices every 1 second so punches show up on the live stream immediately!
     this.pollIntervalTimer = setInterval(async () => {
       try {
         const devices = await this.deviceRepo.listByOrg(1);
@@ -80,7 +80,7 @@ export class PunchesService implements OnModuleInit, OnModuleDestroy {
       } catch {
         // background poll non-blocking
       }
-    }, 4000);
+    }, 1000);
   }
 
   public async getHistoricalLogs(query: PunchQueryDto): Promise<{
@@ -255,52 +255,77 @@ export class PunchesService implements OnModuleInit, OnModuleDestroy {
       major: 0,
     });
     const totalMatches = countCheck.AcsEvent?.totalMatches || 0;
-    const searchStart = Math.max(0, totalMatches - 35);
+    // Set searchStart to totalMatches - 20 to ensure the 30-item ISAPI page limit reaches the absolute latest event
+    const searchStart = Math.max(0, totalMatches - 20);
 
     const acsRes = await client.searchAcsEvents({
       searchID: randomUUID(),
       searchResultPosition: searchStart,
-      maxResults: 35,
+      maxResults: 30,
       major: 0,
     });
 
     const rawList = acsRes.AcsEvent?.InfoList || [];
-    // Keep events that have an employee number, card, or valid verification mode
-    const infoList = rawList.filter((i) => i.employeeNoString || i.cardNo || i.name || (i.currentVerifyMode && i.currentVerifyMode !== 'invalid'));
+    // Sort rawList strictly ascending by serialNo so events are evaluated in true hardware sequence
+    rawList.sort((a, b) => (a.serialNo || 0) - (b.serialNo || 0));
+
+    // Keep ONLY valid employee authentication events (face, fingerprint, card)
+    const infoList = rawList.filter(
+      (i) => i.employeeNoString || i.name || i.cardNo || i.minor === 75 || i.minor === 38 || i.minor === 1,
+    );
     let newCount = 0;
     let duplicateCount = 0;
 
+    const lastSyncedSerial = this.lastSyncedSerialMap.get(device.id) || 0;
+
     for (const info of infoList) {
       if (!info.time) continue;
-      if (this.lastSyncedAcsSerial > 0 && info.serialNo && info.serialNo <= this.lastSyncedAcsSerial) {
+
+      // Extract raw vendor employee ID from event identity attributes
+      const rawVendorUserId = info.employeeNoString || (info.name === 'amare' ? '2' : info.cardNo);
+      
+      // If event has no employee identity (e.g. door relay unlock or invalid system event), ignore it
+      if (!rawVendorUserId) continue;
+
+      if (lastSyncedSerial > 0 && info.serialNo && info.serialNo <= lastSyncedSerial) {
         continue;
       }
+
+      // Update checkpoint for this device as we see higher serial numbers for valid employee punches
+      if (info.serialNo) {
+        const currentHigh = this.lastSyncedSerialMap.get(device.id) || 0;
+        this.lastSyncedSerialMap.set(device.id, Math.max(currentHigh, info.serialNo));
+      }
+
       const deviceTime = new Date(info.time);
       const eventDate = deviceTime.toISOString().split('T')[0]!;
       const punchTimeUtc = deviceTime.toISOString();
-
-      const rawVendorUserId = info.employeeNoString || (info.name === 'amare' ? '2' : info.cardNo || String(info.serialNo || '1'));
 
       // Resolve employee mapping on this device
       const mapping = await this.mappingRepo.findMapping(device.id, rawVendorUserId);
       const externalEmployeeId = mapping ? mapping.external_employee_id : `EMP-${rawVendorUserId.padStart(4, '0')}`;
 
-      // Map verification mode
+      // Map verification mode accurately by ISAPI minor code first, then payload attributes
       let verificationType: VerificationType = VerificationType.FACE;
       const verifyModeStr = (info.currentVerifyMode || '').toLowerCase();
-      if (verifyModeStr.includes('face')) {
+
+      if (info.minor === 38 || info.minor === 39 || verifyModeStr === 'fingerprint' || verifyModeStr === 'fp') {
+        verificationType = VerificationType.FINGERPRINT;
+      } else if (info.minor === 1 || info.minor === 2 || info.minor === 5 || verifyModeStr === 'card') {
+        verificationType = VerificationType.CARD;
+      } else if (info.minor === 75 || info.minor === 76 || Boolean((info as any).FaceRect) || verifyModeStr === 'face') {
         verificationType = VerificationType.FACE;
+      } else if (verifyModeStr.includes('finger') || verifyModeStr.includes('fp')) {
+        verificationType = VerificationType.FINGERPRINT;
       } else if (verifyModeStr.includes('card') || info.cardNo) {
         verificationType = VerificationType.CARD;
-      } else if (verifyModeStr.includes('fp') || verifyModeStr.includes('finger')) {
-        verificationType = VerificationType.FINGERPRINT;
       }
 
       // Map punch type
       let punchType: PunchType = PunchType.IN;
-      if (info.minor === 75 || info.minor === 21 || info.minor === 1) {
+      if (info.minor === 75 || info.minor === 38 || info.minor === 21 || info.minor === 1) {
         punchType = PunchType.IN;
-      } else if (info.minor === 76 || info.minor === 22) {
+      } else if (info.minor === 76 || info.minor === 39 || info.minor === 22) {
         punchType = PunchType.OUT;
       }
 
@@ -646,13 +671,21 @@ export class PunchesService implements OnModuleInit, OnModuleDestroy {
           maxResults: 1,
           major: 0,
         });
-        checkpoint = countCheck.AcsEvent?.totalMatches || 0;
+        const totalMatches = countCheck.AcsEvent?.totalMatches || 0;
+        const lastEventRes = await client.searchAcsEvents({
+          searchID: randomUUID(),
+          searchResultPosition: Math.max(0, totalMatches - 1),
+          maxResults: 1,
+          major: 0,
+        });
+        const lastSerial = lastEventRes.AcsEvent?.InfoList?.[0]?.serialNo || totalMatches;
+        checkpoint = lastSerial;
+        this.lastSyncedSerialMap.set(device.id, checkpoint);
       }
     } catch {
       // ignore
     }
 
-    this.lastSyncedAcsSerial = checkpoint;
     return {
       success: true,
       message: 'All logs purged. Checkpoint set to current terminal count so only new punches will be captured.',

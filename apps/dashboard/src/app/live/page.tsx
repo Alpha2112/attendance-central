@@ -98,7 +98,7 @@ export default function LiveStreamPage() {
     if (!isLive) return;
     const interval = setInterval(() => {
       fetchLivePunches();
-    }, 2500);
+    }, 1000);
     return () => clearInterval(interval);
   }, [isLive, fetchLivePunches]);
 
@@ -314,9 +314,8 @@ export default function LiveStreamPage() {
           <Table>
             <TableHeader>
               <TableRow className="border-border/80 bg-muted/20 text-xs">
-                <TableHead className="w-[200px] font-semibold">Employee</TableHead>
+                <TableHead className="w-[220px] font-semibold">Employee</TableHead>
                 <TableHead className="font-semibold">Terminal & Vendor</TableHead>
-                <TableHead className="text-center font-semibold">Punch Type</TableHead>
                 <TableHead className="text-center font-semibold">Verification</TableHead>
                 <TableHead className="font-semibold">Timestamp</TableHead>
                 <TableHead className="font-semibold">Fingerprint</TableHead>
@@ -326,14 +325,14 @@ export default function LiveStreamPage() {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-40 text-center text-muted-foreground">
+                  <TableCell colSpan={6} className="h-40 text-center text-muted-foreground">
                     <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2 opacity-50" />
                     Connecting to real-time normalized stream...
                   </TableCell>
                 </TableRow>
               ) : punches.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-48 text-center text-muted-foreground">
+                  <TableCell colSpan={6} className="h-48 text-center text-muted-foreground">
                     <div className="max-w-md mx-auto space-y-2">
                       <FingerprintIcon className="h-10 w-10 mx-auto text-muted-foreground/40" />
                       <div className="font-semibold text-foreground">No Live Punches Buffered</div>
@@ -374,20 +373,6 @@ export default function LiveStreamPage() {
                           <div className="text-[11px] text-muted-foreground font-mono">{p.deviceCode}</div>
                         </div>
                       </div>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <Badge
-                        variant="outline"
-                        className={
-                          p.punchType === 'IN'
-                            ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-xs font-bold'
-                            : p.punchType === 'OUT'
-                            ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 text-xs font-bold'
-                            : 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30 text-xs font-bold'
-                        }
-                      >
-                        {p.punchType}
-                      </Badge>
                     </TableCell>
                     <TableCell className="text-center">
                       <Badge variant="outline" className="text-xs bg-muted/40 font-mono">

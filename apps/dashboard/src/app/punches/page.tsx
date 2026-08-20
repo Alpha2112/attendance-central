@@ -432,7 +432,6 @@ export default function PunchesPage() {
               <TableRow className="border-border/40 hover:bg-transparent text-xs">
                 <TableHead className="w-[220px]">Employee</TableHead>
                 <TableHead>Terminal & Vendor</TableHead>
-                <TableHead className="text-center">Punch Type</TableHead>
                 <TableHead className="text-center">Verification</TableHead>
                 <TableHead>Local Time</TableHead>
                 <TableHead>Source</TableHead>
@@ -443,14 +442,14 @@ export default function PunchesPage() {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="h-40 text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="h-40 text-center text-muted-foreground">
                     <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2 opacity-50" />
                     Querying partitioned records from database...
                   </TableCell>
                 </TableRow>
               ) : filteredPunches.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="h-48 text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="h-48 text-center text-muted-foreground">
                     <div className="max-w-md mx-auto space-y-2">
                       <FingerprintIcon className="h-10 w-10 mx-auto text-muted-foreground/40" />
                       <div className="font-semibold text-foreground">No Punch Logs in Database</div>
@@ -488,20 +487,6 @@ export default function PunchesPage() {
                           <div className="text-[11px] text-muted-foreground truncate max-w-[150px]">{p.deviceName}</div>
                         </div>
                       </div>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <Badge
-                        variant="outline"
-                        className={
-                          p.punchType === 'IN'
-                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 text-xs font-bold'
-                            : p.punchType === 'OUT'
-                            ? 'bg-amber-500/10 text-amber-400 border-amber-500/30 text-xs font-bold'
-                            : 'bg-purple-500/10 text-purple-400 border-purple-500/30 text-xs font-bold'
-                        }
-                      >
-                        {p.punchType}
-                      </Badge>
                     </TableCell>
                     <TableCell className="text-center">
                       <Badge variant="outline" className="text-xs bg-muted/40 font-mono">
