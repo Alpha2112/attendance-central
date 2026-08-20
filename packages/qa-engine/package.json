@@ -1,0 +1,32 @@
+{
+  "name": "@attendance/qa-engine",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "rimraf dist tsconfig.tsbuildinfo",
+    "lint": "eslint src/ --ext .ts",
+    "test": "vitest run",
+    "test:chaos": "tsx src/cli.ts run-all"
+  },
+  "dependencies": {
+    "@attendance/config": "workspace:*",
+    "@attendance/contracts": "workspace:*",
+    "@attendance/database": "workspace:*",
+    "@attendance/integration": "workspace:*",
+    "@attendance/kafka": "workspace:*",
+    "@attendance/logging": "workspace:*",
+    "@attendance/redis": "workspace:*",
+    "@attendance/security": "workspace:*",
+    "@attendance/simulator": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}

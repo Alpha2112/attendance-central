@@ -1,0 +1,19 @@
+{
+  "name": "@attendance/observability",
+  "version": "1.0.0",
+  "description": "Enterprise Attendance Integration Platform - Observability, Metrics & Tracing Context",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --build",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint \"src/**/*.ts\"",
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}

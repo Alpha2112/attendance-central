@@ -1,0 +1,28 @@
+export const DEFAULT_REDACT_PATHS = [
+  'password',
+  '*.password',
+  '*.*.password',
+  'token',
+  '*.token',
+  '*.*.token',
+  'secret',
+  '*.secret',
+  '*.*.secret',
+  'authorization',
+  'headers.authorization',
+  'req.headers.authorization',
+  'apiKey',
+  '*.apiKey',
+  'secretKey',
+  '*.secretKey',
+  'communicationKey',
+  '*.communicationKey',
+  'privateKey',
+  '*.privateKey',
+  'DB_PASSWORD',
+  'REDIS_PASSWORD',
+  'MYSQL_PASSWORD',
+  'MYSQL_ROOT_PASSWORD',
+];
+
+export const REDACT_CENSOR = '[REDACTED]';

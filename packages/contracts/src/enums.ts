@@ -1,0 +1,98 @@
+export enum DeviceVendor {
+  ZKTECO = 'ZKTECO',
+  HIKVISION = 'HIKVISION',
+  SUPREMA = 'SUPREMA',
+  DAHUA = 'DAHUA',
+  ANVIZ = 'ANVIZ',
+  UNKNOWN = 'UNKNOWN',
+}
+
+export enum ConnectionMode {
+  PUSH = 'PUSH',
+  PULL = 'PULL',
+  HYBRID = 'HYBRID',
+}
+
+export enum EventSource {
+  PUSH = 'PUSH',
+  PULL = 'PULL',
+  REALTIME = 'REALTIME',
+  RECONCILIATION = 'RECONCILIATION',
+  IMPORT = 'IMPORT',
+}
+
+export enum PunchType {
+  IN = 'IN',
+  OUT = 'OUT',
+  BREAK_IN = 'BREAK_IN',
+  BREAK_OUT = 'BREAK_OUT',
+  OVERTIME_IN = 'OVERTIME_IN',
+  OVERTIME_OUT = 'OVERTIME_OUT',
+  UNKNOWN = 'UNKNOWN',
+}
+
+export enum VerificationType {
+  FACE = 'FACE',
+  FINGERPRINT = 'FINGERPRINT',
+  PALM = 'PALM',
+  CARD = 'CARD',
+  PIN = 'PIN',
+  QR = 'QR',
+  IRIS = 'IRIS',
+  BLUETOOTH = 'BLUETOOTH',
+  MANUAL = 'MANUAL',
+  UNKNOWN = 'UNKNOWN',
+}
+
+export enum DeviceStatus {
+  REGISTERED = 'REGISTERED',
+  ONLINE = 'ONLINE',
+  OFFLINE = 'OFFLINE',
+  DEGRADED = 'DEGRADED',
+  MAINTENANCE = 'MAINTENANCE',
+  AUTH_ERROR = 'AUTH_ERROR',
+  DISABLED = 'DISABLED',
+  UNKNOWN = 'UNKNOWN',
+}
+
+export enum NormalizationStatus {
+  PENDING = 'PENDING',
+  NORMALIZED = 'NORMALIZED',
+  DUPLICATE = 'DUPLICATE',
+  PENDING_MAPPING = 'PENDING_MAPPING',
+  FAILED = 'FAILED',
+}
+
+export enum SyncJobStatus {
+  QUEUED = 'QUEUED',
+  RUNNING = 'RUNNING',
+  COMPLETED = 'COMPLETED',
+  FAILED = 'FAILED',
+  CANCELLED = 'CANCELLED',
+}
+
+export enum DeliveryStatus {
+  PENDING = 'PENDING',
+  DELIVERING = 'DELIVERING',
+  SUCCEEDED = 'SUCCEEDED',
+  RETRY_SCHEDULED = 'RETRY_SCHEDULED',
+  FAILED = 'FAILED',
+}
+
+export enum CommandType {
+  REBOOT = 'REBOOT',
+  SYNC_TIME = 'SYNC_TIME',
+  SYNC_USERS = 'SYNC_USERS',
+  CLEAR_LOGS = 'CLEAR_LOGS',
+  UNLOCK_DOOR = 'UNLOCK_DOOR',
+  CUSTOM = 'CUSTOM',
+}
+
+export enum CommandStatus {
+  PENDING = 'PENDING',
+  SENT = 'SENT',
+  ACKNOWLEDGED = 'ACKNOWLEDGED',
+  EXECUTED = 'EXECUTED',
+  FAILED = 'FAILED',
+  TIMED_OUT = 'TIMED_OUT',
+}

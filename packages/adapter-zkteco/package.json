@@ -1,0 +1,25 @@
+{
+  "name": "@attendance/adapter-zkteco",
+  "version": "1.0.0",
+  "description": "Enterprise Attendance Integration Platform - ZKTeco Device Adapter (Standalone TCP & ADMS Push)",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --build",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint \"src/**/*.ts\"",
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@attendance/contracts": "workspace:*",
+    "@attendance/logging": "workspace:*",
+    "@attendance/simulator": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}

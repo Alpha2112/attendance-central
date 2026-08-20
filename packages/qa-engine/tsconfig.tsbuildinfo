@@ -1,0 +1,1 @@
+{"root":["./src/cli.ts","./src/scenarios/burst-throughput.scenario.ts","./src/scenarios/duplicate-storm.scenario.ts","./src/scenarios/outbox-downstream-recovery.scenario.ts","./src/scenarios/unmapped-employee.scenario.ts"],"version":"5.9.3"}

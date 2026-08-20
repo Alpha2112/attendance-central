@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: attendance-platform
+  labels:
+    app.kubernetes.io/name: attendance-platform
+    environment: production

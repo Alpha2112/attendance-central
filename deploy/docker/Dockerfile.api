@@ -1,0 +1,42 @@
+# ==============================================================================
+# Enterprise Attendance Integration Platform - API Gateway Production Dockerfile
+# Multi-Stage Build with Non-Root Security Hardening (Node 22 Alpine)
+# ==============================================================================
+
+# --- Stage 1: Build & Prune ---
+FROM node:22-alpine AS builder
+WORKDIR /app
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+# Copy root manifest and workspace files
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json turbo.json tsconfig.base.json ./
+COPY packages ./packages
+COPY apps ./apps
+
+# Install all dependencies and build TypeScript packages
+RUN pnpm install --frozen-lockfile
+RUN pnpm --filter @attendance/api build
+
+# --- Stage 2: Production Minimal Runtime ---
+FROM node:22-alpine AS runner
+WORKDIR /app
+RUN apk add --no-cache dumb-init
+
+# Use unprivileged non-root user
+USER node
+ENV NODE_ENV=production
+ENV PORT=4000
+
+COPY --chown=node:node --from=builder /app/package.json ./
+COPY --chown=node:node --from=builder /app/node_modules ./node_modules
+COPY --chown=node:node --from=builder /app/packages ./packages
+COPY --chown=node:node --from=builder /app/apps/api ./apps/api
+
+EXPOSE 4000
+
+# Healthcheck probe (Liveness & Readiness)
+HEALTHCHECK --interval=15s --timeout=3s --start-period=10s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:4000/api/v1/health || exit 1
+
+ENTRYPOINT ["/usr/bin/dumb-init", "--"]
+CMD ["node", "apps/api/dist/index.js"]

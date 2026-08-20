@@ -1,0 +1,27 @@
+{
+  "name": "@attendance/security",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "rimraf dist tsconfig.tsbuildinfo",
+    "lint": "eslint src/ --ext .ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@attendance/config": "workspace:*",
+    "@attendance/contracts": "workspace:*",
+    "@attendance/database": "workspace:*",
+    "@attendance/logging": "workspace:*",
+    "@attendance/redis": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}

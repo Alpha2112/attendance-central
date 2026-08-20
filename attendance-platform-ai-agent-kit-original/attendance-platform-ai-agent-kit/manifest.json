@@ -1,0 +1,42 @@
+{
+  "name": "attendance-platform-ai-agent-kit",
+  "version": "1.0.0",
+  "documents": [
+    "docs/AGENT_WORKFLOW.md",
+    "docs/ARCHITECTURE.md",
+    "docs/DATABASE.md",
+    "docs/DEVICE_ADAPTER_GUIDE.md",
+    "docs/DOMAIN_MODEL.md",
+    "docs/EVENT_CONTRACTS.md",
+    "docs/PR_REVIEW_CHECKLIST.md",
+    "docs/SECURITY.md",
+    "docs/TASK_TEMPLATE.md",
+    "docs/adr/001-node-typescript.md",
+    "docs/adr/002-kafka.md",
+    "docs/adr/003-mysql.md",
+    "docs/adr/004-adapter-architecture.md",
+    "docs/adr/005-transactional-outbox.md"
+  ],
+  "agent_prompts": [
+    "prompts/00-lead-architect-agent.md",
+    "prompts/01-foundation-agent.md",
+    "prompts/02-database-agent.md",
+    "prompts/03-event-domain-agent.md",
+    "prompts/04-mock-device-agent.md",
+    "prompts/05-collector-agent.md",
+    "prompts/06-zkteco-agent.md",
+    "prompts/07-hikvision-agent.md",
+    "prompts/08-suprema-agent.md",
+    "prompts/09-integration-agent.md",
+    "prompts/10-frontend-agent.md",
+    "prompts/11-security-agent.md",
+    "prompts/12-devops-sre-agent.md",
+    "prompts/13-qa-reliability-agent.md",
+    "prompts/14-reviewer-agent.md",
+    "prompts/15-documentation-agent.md"
+  ],
+  "root_files": [
+    "AGENTS.md",
+    "README.md"
+  ]
+}

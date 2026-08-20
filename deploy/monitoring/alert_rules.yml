@@ -1,0 +1,62 @@
+groups:
+  - name: attendance_platform_alerts
+    rules:
+      - alert: HighKafkaConsumerLag
+        expr: sum(kafka_consumergroup_lag{topic="attendance.raw.v1"}) by (consumergroup) > 500
+        for: 2m
+        labels:
+          severity: critical
+          team: sre
+        annotations:
+          summary: 'High Kafka Consumer Lag in {{ $labels.consumergroup }}'
+          description: 'Normalizer consumer group is lagging by more than 500 raw biometric events.'
+
+      - alert: OutboxDeliveryFailureSpike
+        expr: rate(attendance_outbox_deliveries_total{status="FAILED"}[5m]) / rate(attendance_outbox_deliveries_total[5m]) > 0.05
+        for: 3m
+        labels:
+          severity: warning
+          team: integrations
+        annotations:
+          summary: 'Outbound webhook delivery failure rate exceeded 5%'
+          description: 'External HRMS/ERP endpoints are failing or timing out during outbox dispatch.'
+
+      - alert: HardwareClockDriftCritical
+        expr: max(attendance_device_clock_drift_seconds) by (device_code) > 60
+        for: 5m
+        labels:
+          severity: warning
+          team: hardware-ops
+        annotations:
+          summary: 'Terminal {{ $labels.device_code }} RTC clock drift exceeds 60s'
+          description: 'Hardware RTC clock drift may cause out-of-order timestamp anomalies.'
+
+      - alert: DeviceFleetOfflineWarning
+        expr: (count(attendance_device_status{status="OFFLINE"}) / count(attendance_device_status)) > 0.20
+        for: 5m
+        labels:
+          severity: critical
+          team: network-ops
+        annotations:
+          summary: 'More than 20% of terminal fleet is OFFLINE'
+          description: 'Potential network partition or Biometric VLAN firewall issue.'
+
+      - alert: DeadLetterQueueIngestion
+        expr: increase(attendance_events_dlq_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+          team: data-platform
+        annotations:
+          summary: 'Poison pill detected in Dead-Letter Queue'
+          description: 'Malformed or un-normalizable raw events routed to attendance.dlq.v1.'
+
+      - alert: DatabaseConnectionPoolSaturation
+        expr: (attendance_db_pool_active_connections / attendance_db_pool_limit) > 0.90
+        for: 2m
+        labels:
+          severity: critical
+          team: dba
+        annotations:
+          summary: 'MySQL connection pool saturation > 90%'
+          description: 'Connection pool is nearing exhaustion, risk of database timeouts.'

@@ -1,0 +1,1 @@
+{"root":["./src/env-loader.ts","./src/index.ts","./src/schemas/api.schema.ts","./src/schemas/database.schema.ts","./src/schemas/kafka.schema.ts","./src/schemas/redis.schema.ts"],"version":"5.9.3"}

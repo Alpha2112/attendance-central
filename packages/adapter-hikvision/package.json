@@ -1,0 +1,29 @@
+{
+  "name": "@attendance/adapter-hikvision",
+  "version": "1.0.0",
+  "description": "Enterprise Attendance Integration Platform - Hikvision ISAPI Device Adapter",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --build",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint \"src/**/*.ts\"",
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@attendance/config": "workspace:*",
+    "@attendance/contracts": "workspace:*",
+    "@attendance/kafka": "workspace:*",
+    "@attendance/logging": "workspace:*",
+    "@attendance/redis": "workspace:*",
+    "@attendance/simulator": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}

@@ -1,0 +1,1 @@
+{"root":["./src/cli.ts","./src/index.ts","./src/adapter/suprema.adapter.ts","./src/auth/biostar-session.manager.ts","./src/client/biostar-client.ts","./src/client/error-classifier.ts","./src/events/event-mapper.ts","./src/realtime/biostar-realtime.consumer.ts","./src/types/biostar.types.ts"],"version":"5.9.3"}
