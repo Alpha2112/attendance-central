@@ -315,6 +315,7 @@ export class SupremaDeviceAdapter implements AttendanceDeviceAdapter, RealtimeAt
     device: DeviceModel,
     handler: (event: RawAttendanceEvent) => Promise<void>,
     signal?: AbortSignal,
+    onStatus?: (connected: boolean) => void,
   ): Promise<() => void> {
     const manager = this.getConnectionManager();
     const deviceId = await manager.ensureConnected(device);
@@ -323,6 +324,14 @@ export class SupremaDeviceAdapter implements AttendanceDeviceAdapter, RealtimeAt
       deviceId,
       this.getCatalog(),
       this.logger,
+      undefined,
+      (connected) => {
+        // On a disconnect, forget the cached session so the next ensureConnected
+        // performs a fresh re-dial — the gateway does not auto-reconnect a direct
+        // connection, so this is what lets the terminal come back ONLINE.
+        if (!connected) manager.invalidate(device.id);
+        onStatus?.(connected);
+      },
     );
 
     this.realtimeConsumers.set(device.id, consumer);

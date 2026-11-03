@@ -46,6 +46,9 @@ export class GsdkRealtimeConsumer {
     private readonly catalog: EventCodeCatalog,
     private readonly logger?: AppLogger,
     private readonly queueSize: number = DEFAULT_QUEUE_SIZE,
+    // Optional: notified on every device connect/disconnect transition the
+    // gateway reports, so callers can reflect live online/offline status.
+    private readonly onStatusChange?: (connected: boolean) => void,
   ) {}
 
   public async start(device: DeviceModel, onEvent: GsdkEventCallback): Promise<void> {
@@ -81,6 +84,16 @@ export class GsdkRealtimeConsumer {
       change.status === GsdkConnectionStatus.TLS_CONNECTED;
     const wasConnected = this.deviceConnected;
     this.deviceConnected = connected;
+
+    // Surface the transition for passive device-status tracking (never throws
+    // into the stream path).
+    if (wasConnected !== connected && this.onStatusChange) {
+      try {
+        this.onStatusChange(connected);
+      } catch {
+        // ignore — status reporting must never disrupt streaming
+      }
+    }
 
     // Only act on a down -> up transition (a fresh reconnect).
     if (!connected || wasConnected || !this.device || !this.onEvent) return;

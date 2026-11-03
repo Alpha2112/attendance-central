@@ -155,8 +155,12 @@ export class PunchesService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
+    // Attempt to stream from every Suprema device that isn't manually stopped —
+    // including ones currently OFFLINE, so they auto-recover to ONLINE the moment
+    // the terminal is reachable again. (STOPPED/DISABLED/MAINTENANCE are left alone.)
+    const manuallyHalted = new Set(['STOPPED', 'DISABLED', 'MAINTENANCE']);
     const onlineSuprema = devices.filter(
-      (d) => d.vendor === 'SUPREMA' && (d.status === 'ONLINE' || d.status === 'REGISTERED'),
+      (d) => d.vendor === 'SUPREMA' && !manuallyHalted.has(String(d.status ?? '').toUpperCase()),
     );
     const onlineIds = new Set(onlineSuprema.map((d) => d.id));
 
@@ -179,21 +183,71 @@ export class PunchesService implements OnModuleInit, OnModuleDestroy {
       this.supremaSubscriptions.set(device.id, () => {});
       try {
         const deviceModel = this.toDeviceModel(device);
-        const unsubscribe = await this.supremaAdapter.subscribe(deviceModel, async (event) => {
-          await this.persistSupremaPunch(device, event);
-        });
+        const unsubscribe = await this.supremaAdapter.subscribe(
+          deviceModel,
+          async (event) => {
+            await this.persistSupremaPunch(device, event);
+          },
+          undefined,
+          // Gateway pushes connect/disconnect transitions -> reflect live status.
+          (connected) => {
+            void this.updateDeviceStatus(device.id, connected);
+            if (!connected) {
+              // Drop the held subscription so the reconcile loop re-establishes a
+              // fresh connection; the terminal then flips back to ONLINE on its own
+              // once it's reachable again (direct connections aren't auto-redialed).
+              this.scheduleSupremaResubscribe(device.id);
+            }
+          },
+        );
         this.supremaSubscriptions.set(device.id, unsubscribe);
+        // Subscription established -> the terminal is reachable.
+        void this.updateDeviceStatus(device.id, true);
         this.logger.info(
           { deviceId: device.id, deviceCode: device.device_code },
           'Opened Suprema G-SDK real-time subscription for Live Punch Stream',
         );
       } catch (err: unknown) {
         this.supremaSubscriptions.delete(device.id);
+        // Could not open the stream -> the terminal is unreachable (offline).
+        void this.updateDeviceStatus(device.id, false);
         this.logger.warn(
           { deviceId: device.id, error: err instanceof Error ? err.message : String(err) },
           'Failed to open Suprema real-time subscription (will retry)',
         );
       }
+    }
+  }
+
+  /**
+   * Tears down a Suprema subscription after a disconnect so the reconcile loop
+   * re-subscribes it with a fresh connection. Deferred so we never stop the
+   * consumer from inside its own status handler.
+   */
+  private scheduleSupremaResubscribe(deviceId: number): void {
+    setTimeout(() => {
+      const unsubscribe = this.supremaSubscriptions.get(deviceId);
+      if (unsubscribe) {
+        try {
+          unsubscribe();
+        } catch {
+          // best effort
+        }
+        this.supremaSubscriptions.delete(deviceId);
+      }
+    }, 0);
+  }
+
+  /**
+   * Persists a device's live connection status (ONLINE/OFFLINE) + last-seen.
+   * Driven passively by the real-time subscription — never opens a new
+   * connection — and swallows errors so status writes can never break streaming.
+   */
+  private async updateDeviceStatus(deviceId: number, connected: boolean): Promise<void> {
+    try {
+      await this.deviceRepo.updateStatus(deviceId, connected ? 'ONLINE' : 'OFFLINE', new Date());
+    } catch {
+      // best effort — status reporting must not disrupt the punch stream
     }
   }
 

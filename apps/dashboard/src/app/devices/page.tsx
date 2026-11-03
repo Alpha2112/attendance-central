@@ -175,9 +175,11 @@ export default function DevicesPage() {
     }
   };
 
-  // Fetch live devices from API
-  const fetchFleet = useCallback(async () => {
-    setIsRefreshing(true);
+  // Fetch live devices from API. `silent` is used by the auto-poller so the
+  // background refresh doesn't flash the manual-refresh spinner.
+  const fetchFleet = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
+    if (!silent) setIsRefreshing(true);
     try {
       const res = await fetch('/api/devices');
       if (res.ok) {
@@ -210,9 +212,9 @@ export default function DevicesPage() {
         }
       }
     } catch {
-      showToast('Could not refresh fleet from API', 'error');
+      if (!silent) showToast('Could not refresh fleet from API', 'error');
     } finally {
-      setIsRefreshing(false);
+      if (!silent) setIsRefreshing(false);
       setLoading(false);
     }
   }, []);
@@ -220,6 +222,19 @@ export default function DevicesPage() {
   useEffect(() => {
     fetchFleet();
   }, [fetchFleet]);
+
+  // Real-time status: the backend updates each device's ONLINE/OFFLINE from the
+  // gateway's pushed connect/disconnect events. Here we only *read* the fleet on
+  // an interval so the UI reflects it without a manual refresh (no probing).
+  // Paused while a modal is open or the tab is hidden.
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (!isModalOpen && !document.hidden) {
+        void fetchFleet({ silent: true });
+      }
+    }, 5000);
+    return () => clearInterval(id);
+  }, [isModalOpen, fetchFleet]);
 
   // Open modal for new registration
   const handleOpenRegister = () => {
@@ -569,7 +584,7 @@ export default function DevicesPage() {
             variant="outline"
             size="sm"
             className="border-border bg-card hover:bg-muted font-medium"
-            onClick={fetchFleet}
+            onClick={() => fetchFleet()}
             disabled={isRefreshing}
           >
             <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isRefreshing ? 'animate-spin' : ''}`} />
@@ -652,12 +667,25 @@ export default function DevicesPage() {
         <CardHeader className="p-4 pb-2">
           <div className="flex items-center justify-between">
             <CardTitle className="text-sm font-semibold">Registered Hardware Terminals</CardTitle>
-            <Badge variant="outline" className="text-[10px] font-mono">
-              {filteredDevices.length} Terminals Registered
-            </Badge>
+            <div className="flex items-center gap-2">
+              <span
+                className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400"
+                title="Suprema status updates live from the gateway's connect/disconnect events"
+              >
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-75" />
+                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                </span>
+                Live status
+              </span>
+              <Badge variant="outline" className="text-[10px] font-mono">
+                {filteredDevices.length} Terminals Registered
+              </Badge>
+            </div>
           </div>
           <CardDescription className="text-xs">
-            Direct telemetry, live ping probes, and communication controls per terminal.
+            Direct telemetry, live ping probes, and communication controls per terminal. Suprema
+            status auto-updates as the terminal connects or disconnects.
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
