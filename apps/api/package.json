@@ -16,6 +16,7 @@
     "@attendance/config": "workspace:*",
     "@attendance/contracts": "workspace:*",
     "@attendance/database": "workspace:*",
+    "@attendance/integration": "workspace:*",
     "@attendance/logging": "workspace:*",
     "@attendance/observability": "workspace:*",
     "@attendance/kafka": "workspace:*",

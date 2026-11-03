@@ -3,6 +3,7 @@ import http from 'node:http';
 import https from 'node:https';
 import { type DatabaseClient } from '@attendance/database';
 import { type AppLogger } from '@attendance/logging';
+import { WebhookSigner } from './webhook-signer.js';
 
 export interface WebhookDeliveryResult {
   success: boolean;
@@ -16,6 +17,10 @@ export interface WebhookDeliveryResult {
 export interface IntegrationSubscriptionDetails {
   id: number;
   organizationId: string;
+  /** Optional tenant id injected into the delivered payload as `tenantId`. */
+  tenantId?: string | null;
+  /** Optional organizationId override injected into the delivered payload. */
+  payloadOrganizationId?: string | null;
   name: string;
   targetType: string;
   endpointUrl: string;
@@ -23,13 +28,20 @@ export interface IntegrationSubscriptionDetails {
   secretReference?: string;
   retryLimit: number;
   timeoutMs: number;
+  /** Optional per-subscription routing filter (branchId / deviceCode / punchType). */
+  filterRules?: Record<string, unknown> | null;
 }
 
 export class WebhookDispatcher {
+  private readonly signer: WebhookSigner;
+
   constructor(
     private readonly db?: DatabaseClient,
     private readonly logger?: AppLogger,
-  ) {}
+    signer?: WebhookSigner,
+  ) {
+    this.signer = signer ?? new WebhookSigner();
+  }
 
   /**
    * Dispatches a webhook payload to an integration endpoint with HMAC SHA-256 signing.
@@ -44,15 +56,21 @@ export class WebhookDispatcher {
     const payloadStr = typeof payload === 'string' ? payload : JSON.stringify(payload);
     const timestamp = Date.now().toString();
 
-    // 1. Resolve secret & compute HMAC signature
-    const secret = this.resolveSecret(integration.secretReference);
-    const signature = this.computeHmacSignature(payloadStr, timestamp, secret);
+    // 1. Sign the payload with the integration's derived key (HMAC or Ed25519).
+    //    Nothing is stored; the key is recomputable from the master key.
+    const { header: signature, algorithm } = this.signer.sign(
+      integration.id,
+      integration.authType,
+      payloadStr,
+      timestamp,
+    );
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'X-Attendance-Event-Id': outboxEventId,
       'X-Attendance-Timestamp': timestamp,
       'X-Attendance-Signature': signature,
+      'X-Attendance-Signature-Algorithm': algorithm,
       'X-Attendance-Attempt': String(attemptNumber),
       'User-Agent': 'Enterprise-Attendance-Integration-Platform/1.0',
     };
@@ -132,18 +150,6 @@ export class WebhookDispatcher {
     const signedData = `${timestamp}.${payload}`;
     const hmac = crypto.createHmac('sha256', secret).update(signedData).digest('hex');
     return `sha256=${hmac}`;
-  }
-
-  /**
-   * Resolves secret reference from environment or literal reference.
-   */
-  private resolveSecret(secretRef?: string): string {
-    if (!secretRef) return 'default-webhook-secret';
-    if (secretRef.startsWith('env:')) {
-      const envKey = secretRef.substring(4);
-      return process.env[envKey] || 'default-webhook-secret';
-    }
-    return secretRef;
   }
 
   /**
@@ -238,7 +244,9 @@ export class WebhookDispatcher {
           data.status,
           data.httpStatusCode ?? null,
           data.latencyMs ?? null,
-          data.requestPayload ? JSON.parse(data.requestPayload) : null,
+          // request_payload is a JSON column; pass the already-serialized JSON
+          // string (mysql2 rejects a bound plain object here).
+          data.requestPayload ?? null,
           data.responseExcerpt ?? null,
           data.error ?? null,
           data.nextRetryAt ?? null,

@@ -10,26 +10,27 @@ import {
 } from '@attendance/contracts';
 import { SupremaDeviceAdapter } from './index.js';
 
-function cleanEnv(val?: string, fallback = ''): string {
+function cleanEnv(val: string | undefined, fallback = ''): string {
   if (!val) return fallback;
   return val.split('#')[0]!.trim();
 }
 
-async function main() {
+async function main(): Promise<void> {
   const mode = process.argv[2] || 'test-conn';
   const config = loadAppConfig();
   const logger = createLogger({ serviceName: 'suprema-cli', level: 'info' });
 
-  // Suprema / BioStar 2 parameters from environment or defaults
-  const host = cleanEnv(process.env['BIOSTAR_HOST'], '127.0.0.1');
-  const port = parseInt(cleanEnv(process.env['BIOSTAR_PORT'], '80'), 10);
-  const username = cleanEnv(process.env['BIOSTAR_USERNAME'], 'admin');
-  const password = cleanEnv(process.env['BIOSTAR_PASSWORD'], 'Admin12345');
-  const useHttps = cleanEnv(process.env['BIOSTAR_USE_HTTPS'], 'false') === 'true';
+  // Device Gateway + terminal parameters (from environment or defaults).
+  const gatewayAddr = cleanEnv(process.env['SUPREMA_GATEWAY_ADDR'], '127.0.0.1:4000');
+  const caCertPath = cleanEnv(process.env['SUPREMA_GATEWAY_CA_CERT']) || undefined;
+  const protoDir = cleanEnv(process.env['SUPREMA_GSDK_PROTO_DIR']) || undefined;
+  const deviceHost = cleanEnv(process.env['SUPREMA_DEVICE_IP'], '127.0.0.1');
+  const devicePort = parseInt(cleanEnv(process.env['SUPREMA_DEVICE_PORT'], '51211'), 10);
+  const useSSL = cleanEnv(process.env['SUPREMA_DEVICE_SSL'], 'false') === 'true';
 
   logger.info(
-    { host, port, username, useHttps, mode },
-    'Initializing Suprema / BioStar 2 Device Runner',
+    { gatewayAddr, deviceHost, devicePort, useSSL, mode },
+    'Initializing Suprema G-SDK Runner',
   );
 
   const device: DeviceModel = {
@@ -37,43 +38,44 @@ async function main() {
     organizationId: 'ORG-TECHIVE',
     branchId: 'BR-HQ-01',
     deviceCode: 'DEV-HQ-SUP01',
-    serialNumber: 'SUP-BS3-998811',
+    serialNumber: cleanEnv(process.env['SUPREMA_DEVICE_ID'], 'SUP-BS3-998811'),
     name: 'Suprema BioStation 3 Main Entrance',
     vendor: 'SUPREMA',
-    protocol: 'BIOSTAR2_API',
+    protocol: 'GSDK',
     connectionMode: 'HYBRID',
     status: DeviceStatus.ONLINE,
-    host,
-    port,
+    host: deviceHost,
+    port: devicePort,
     timezone: 'UTC',
-    metadata: {
-      username,
-      password,
-    },
+    metadata: { useSSL },
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
 
   const adapter = new SupremaDeviceAdapter(logger, {
-    port,
-    useHttps,
-    mockFallback: host === '127.0.0.1' || host === 'localhost' || host === 'mock-biostar',
+    gatewayAddress: gatewayAddr,
+    caCertPath,
+    protoDir,
+    useSSL,
+    mockFallback: deviceHost === '127.0.0.1' || deviceHost === 'localhost',
   });
 
   if (mode === 'test-conn') {
-    logger.info(`Probing BioStar 2 server at ${host}:${port} with session authentication...`);
+    logger.info(
+      `Probing Suprema terminal ${deviceHost}:${devicePort} via gateway ${gatewayAddr}...`,
+    );
     const result = await adapter.testConnection(device);
-    logger.info({ result }, 'BioStar 2 connection test completed');
+    logger.info({ result }, 'Suprema G-SDK connection test completed');
+    adapter.close();
     process.exit(result.success ? 0 : 1);
   } else if (mode === 'device-info') {
-    logger.info(`Querying BioStar 2 device specifications from ${host}:${port}...`);
+    logger.info(`Querying Suprema device info from ${deviceHost} via gateway ${gatewayAddr}...`);
     const info = await adapter.getDeviceInfo(device);
-    logger.info({ info }, 'BioStar 2 device specifications');
+    logger.info({ info }, 'Suprema G-SDK device specifications');
+    adapter.close();
     process.exit(0);
   } else if (mode === 'sync-once') {
-    logger.info(
-      `Executing incremental log synchronization from ${host}:${port} with Kafka publication...`,
-    );
+    logger.info(`Executing incremental log synchronization via gateway ${gatewayAddr}...`);
 
     const redisClient = new RedisClient({ config, logger });
     const kafkaClient = new KafkaClient({ config, logger });
@@ -85,7 +87,7 @@ async function main() {
     const fetchResult = await adapter.fetchLogs(device);
     logger.info(
       { eventsCount: fetchResult.events.length, nextCursor: fetchResult.nextCursor },
-      'Logs fetched from BioStar 2 server',
+      'Logs fetched from Suprema terminal via G-SDK',
     );
 
     for (const event of fetchResult.events) {
@@ -99,7 +101,6 @@ async function main() {
         key: partitionKey,
         value: event,
       });
-
       logger.info(
         {
           eventId: event.eventId,
@@ -117,19 +118,31 @@ async function main() {
       'Published all raw events to Kafka attendance.raw.v1 successfully',
     );
 
+    adapter.close();
     await kafkaProducer.disconnect();
     await redisClient.disconnect();
     process.exit(0);
   } else if (mode === 'listen-realtime') {
-    logger.info(`Starting real-time WebSocket event listener from ${host}:${port}...`);
+    logger.info(`Starting Suprema G-SDK real-time listener via gateway ${gatewayAddr}...`);
     await adapter.startRealtime(device, (event) => {
       logger.info(
-        { eventId: event.eventId, vendorUserId: event.vendorUserId, time: event.deviceTime },
-        'Real-time BioStar 2 attendance event received via WebSocket',
+        {
+          eventId: event.eventId,
+          vendorUserId: event.vendorUserId,
+          time: event.deviceTime,
+          verify: event.vendorVerificationType,
+          punch: event.vendorPunchType,
+        },
+        'Real-time Suprema attendance event received via G-SDK',
       );
     });
-    // Keep alive
-    await new Promise(() => {});
+    process.on('SIGINT', () => {
+      adapter.close();
+      process.exit(0);
+    });
+    await new Promise<void>(() => {
+      /* keep alive until SIGINT */
+    });
   } else {
     logger.error(
       `Unknown mode: ${mode}. Available modes: test-conn, sync-once, device-info, listen-realtime`,

@@ -23,6 +23,7 @@
     "@attendance/adapter-zkteco": "workspace:*",
     "@attendance/adapter-hikvision": "workspace:*",
     "@attendance/adapter-suprema": "workspace:*",
+    "@attendance/adapter-anviz": "workspace:*",
     "@attendance/redis": "workspace:*",
     "@attendance/simulator": "workspace:*"
   },

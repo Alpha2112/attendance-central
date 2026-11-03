@@ -21,7 +21,7 @@ services:
     container_name: attendance-grafana
     restart: unless-stopped
     ports:
-      - '${GRAFANA_PORT:-3002}:3000'
+      - '${GRAFANA_PORT:-3008}:3000'
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin_password

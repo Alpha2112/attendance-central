@@ -6,6 +6,7 @@ export interface OutboxEventEntity extends RowDataPacket {
   event_type: string;
   aggregate_type: string;
   aggregate_id: string;
+  organization_id: number | null;
   payload: unknown;
   status: 'PENDING' | 'PUBLISHED' | 'FAILED';
   available_at: Date;
@@ -20,6 +21,8 @@ export interface CreateOutboxEventDto {
   eventType: string;
   aggregateType: string;
   aggregateId: string;
+  /** Organization the event belongs to, used to route webhooks per company. */
+  organizationId?: number | null;
   payload: unknown;
   availableAt?: Date | string;
 }

@@ -1,6 +1,6 @@
+import path from 'node:path';
 import {
   type AttendanceDeviceAdapter,
-  type PushAttendanceAdapter,
   type RealtimeAttendanceAdapter,
   type DeviceModel,
   DeviceVendor,
@@ -13,21 +13,39 @@ import {
   type RawAttendanceEvent,
   EventSource,
 } from '@attendance/contracts';
-import { BioStarClient } from '../client/biostar-client.js';
-import { BioStarRealtimeConsumer } from '../realtime/biostar-realtime.consumer.js';
-import { mapBioStarEventToRawAttendance } from '../events/event-mapper.js';
-import { classifySupremaError } from '../client/error-classifier.js';
-import { type BioStarConnectionOptions, type BioStarEventLog } from '../types/biostar.types.js';
 import { type AppLogger } from '@attendance/logging';
 import { DeviceSimulator } from '@attendance/simulator';
+import {
+  type GatewayClient,
+  type GatewayClientFactory,
+  type SupremaAdapterOptions,
+} from '../types/gsdk.types.js';
+import { createGsdkGatewayClient } from '../client/gsdk-client.js';
+import { DeviceConnectionManager } from '../connection/device-connection.manager.js';
+import { GsdkRealtimeConsumer } from '../realtime/gsdk-realtime.consumer.js';
+import { EventCodeCatalog, isPunchEvent } from '../events/event-codes.js';
+import { mapGsdkEventToRawAttendance, SUPREMA_ADAPTER_TAG } from '../events/event-mapper.js';
+import { classifySupremaError } from '../client/error-classifier.js';
 
-export class SupremaDeviceAdapter
-  implements AttendanceDeviceAdapter, PushAttendanceAdapter, RealtimeAttendanceAdapter
-{
+const MOCK_HOSTS = new Set([
+  '127.0.0.1',
+  'localhost',
+  'mock-suprema',
+  'mock-biostar',
+  'mock-gateway',
+]);
+const FETCH_LIMIT = 50;
+
+/**
+ * Enterprise Suprema adapter backed by the official **Suprema G-SDK Device Gateway**.
+ *
+ * The adapter is a gRPC client of a Device Gateway, which connects to the terminal
+ * (BioStation 3, etc.) over Suprema's binary protocol. BioStar 2 is not required.
+ */
+export class SupremaDeviceAdapter implements AttendanceDeviceAdapter, RealtimeAttendanceAdapter {
   public readonly vendor = DeviceVendor.SUPREMA;
   public readonly capabilities: readonly DeviceCapability[] = [
     DeviceCapability.PULL_LOGS,
-    DeviceCapability.PUSH_LOGS,
     DeviceCapability.REALTIME_EVENTS,
     DeviceCapability.CLOCK_READ,
     DeviceCapability.CLOCK_WRITE,
@@ -38,50 +56,87 @@ export class SupremaDeviceAdapter
     DeviceCapability.PIN,
   ];
 
-  private readonly realtimeConsumers = new Map<string, BioStarRealtimeConsumer>();
-  private readonly defaultPort: number;
-  private readonly useHttps: boolean;
+  private readonly gatewayAddress: string;
+  private readonly caCertPath?: string;
+  private readonly tlsServerName?: string;
+  private readonly protoDir: string;
   private readonly timeoutMs: number;
+  private readonly useSSL: boolean;
+  private readonly defaultDevicePort?: number;
   private readonly mockFallback: boolean;
+  private readonly clientFactory: GatewayClientFactory;
+
+  private client: GatewayClient | null = null;
+  private connectionManager: DeviceConnectionManager | null = null;
+  private catalog: EventCodeCatalog | null = null;
+  private readonly realtimeConsumers = new Map<string, GsdkRealtimeConsumer>();
 
   constructor(
     private readonly logger?: AppLogger,
-    options?: Partial<BioStarConnectionOptions>,
+    options?: SupremaAdapterOptions,
   ) {
-    this.defaultPort = options?.port ?? 80;
-    this.useHttps = options?.useHttps ?? false;
-    this.timeoutMs = options?.timeoutMs ?? 6000;
+    this.gatewayAddress =
+      options?.gatewayAddress ?? process.env['SUPREMA_GATEWAY_ADDR'] ?? '127.0.0.1:4000';
+    this.caCertPath = options?.caCertPath ?? process.env['SUPREMA_GATEWAY_CA_CERT'] ?? undefined;
+    this.tlsServerName =
+      options?.tlsServerName ?? process.env['SUPREMA_GATEWAY_TLS_SERVER_NAME'] ?? undefined;
+    this.protoDir =
+      options?.protoDir ??
+      process.env['SUPREMA_GSDK_PROTO_DIR'] ??
+      path.resolve(process.cwd(), 'vendor/suprema-gsdk/proto');
+    this.timeoutMs = options?.timeoutMs ?? 10_000;
+    this.useSSL = options?.useSSL ?? false;
+    this.defaultDevicePort = options?.defaultDevicePort;
     this.mockFallback = options?.mockFallback ?? true;
+    this.clientFactory = options?.clientFactory ?? ((o) => createGsdkGatewayClient(o, this.logger));
   }
 
   private isMockHost(host: string): boolean {
-    return (
-      this.mockFallback && (host === '127.0.0.1' || host === 'localhost' || host === 'mock-biostar')
-    );
+    return this.mockFallback && MOCK_HOSTS.has(host) && !process.env['SUPREMA_GATEWAY_ADDR'];
   }
 
-  private createClient(device: DeviceModel): BioStarClient {
-    const host = device.host ?? '127.0.0.1';
-    const port = device.port ?? this.defaultPort;
-    const username = (device.metadata?.['username'] as string) || 'admin';
-    const password = (device.metadata?.['password'] as string) || 'Admin12345';
+  private getCatalog(): EventCodeCatalog {
+    if (!this.catalog) {
+      this.catalog = new EventCodeCatalog(undefined, this.logger);
+    }
+    return this.catalog;
+  }
 
-    return new BioStarClient(
-      {
-        host,
-        port,
-        username,
-        password,
-        useHttps: this.useHttps,
+  private getClient(): GatewayClient {
+    if (!this.client) {
+      this.client = this.clientFactory({
+        address: this.gatewayAddress,
+        caCertPath: this.caCertPath,
+        tlsServerName: this.tlsServerName,
+        protoDir: this.protoDir,
         timeoutMs: this.timeoutMs,
-      },
-      this.logger,
-    );
+      });
+    }
+    return this.client;
   }
 
-  /**
-   * Tests connection and authenticates against BioStar 2 server.
-   */
+  private getConnectionManager(): DeviceConnectionManager {
+    if (!this.connectionManager) {
+      this.connectionManager = new DeviceConnectionManager(
+        this.getClient(),
+        { useSSL: this.useSSL, defaultDevicePort: this.defaultDevicePort },
+        this.logger,
+      );
+    }
+    return this.connectionManager;
+  }
+
+  private buildSimulator(device: DeviceModel): DeviceSimulator {
+    return new DeviceSimulator({
+      organizationId: device.organizationId,
+      branchId: device.branchId ?? '1',
+      deviceId: device.id,
+      deviceSerialNumber: device.serialNumber ?? `SUPREMA-${device.deviceCode}`,
+      vendor: DeviceVendor.SUPREMA,
+      adapter: SUPREMA_ADAPTER_TAG,
+    });
+  }
+
   public async testConnection(
     device: DeviceModel,
     signal?: AbortSignal,
@@ -93,65 +148,49 @@ export class SupremaDeviceAdapter
       return { success: false, error: 'Connection test aborted' };
     }
 
-    if (host === 'mock-biostar') {
+    if (this.isMockHost(host)) {
       return {
         success: true,
         latencyMs: 14,
         serialNumber: device.serialNumber ?? `SUPREMA-${device.deviceCode}`,
-        firmwareVersion: 'v2.9.4.15 (sim)',
-        details: {
-          model: 'BioStation 3',
-          serverVersion: 'BioStar 2.9.4',
-        },
+        firmwareVersion: 'v1.0.1 (sim)',
+        details: { model: 'BioStation 3', gateway: '(simulated)' },
       };
     }
 
     try {
-      const client = this.createClient(device);
-      const sessionId = await client.login();
-      const latencyMs = Date.now() - start;
-
+      const manager = this.getConnectionManager();
+      const deviceId = await manager.ensureConnected(device);
+      const info = await this.getClient().getDeviceInfo(deviceId);
       return {
         success: true,
-        latencyMs,
-        serialNumber: device.serialNumber ?? `SUPREMA-${device.deviceCode}`,
-        firmwareVersion: device.firmwareVersion ?? 'BioStar 2',
+        latencyMs: Date.now() - start,
+        serialNumber: String(deviceId),
+        firmwareVersion: info.firmwareVersion ?? device.firmwareVersion ?? 'Suprema G-SDK',
         details: {
-          sessionId,
-          serverHost: host,
+          gatewayDeviceId: deviceId,
+          model: info.modelName,
+          macAddress: info.MACAddr,
+          gateway: this.gatewayAddress,
         },
       };
     } catch (err: unknown) {
       const classified = classifySupremaError(err);
+      this.getConnectionManager().invalidate(device.id);
       this.logger?.warn(
         { deviceId: device.id, host, category: classified.category, error: classified.message },
-        'BioStar 2 connection test failed',
+        'Suprema G-SDK connection test failed',
       );
-
-      if (this.isMockHost(host)) {
-        return {
-          success: true,
-          latencyMs: 15,
-          serialNumber: device.serialNumber ?? `SUPREMA-${device.deviceCode}`,
-          firmwareVersion: 'v2.9.4.15 (sim)',
-          details: {
-            model: 'BioStation 3',
-            serverVersion: 'BioStar 2.9.4',
-          },
-        };
+      let message = classified.message;
+      if (/UNAVAILABLE|ECONNREFUSED|ETIMEDOUT|No connection established/i.test(message)) {
+        message +=
+          ' — ensure the Suprema Device Gateway is running and reachable at ' +
+          `${this.gatewayAddress} (set SUPREMA_GATEWAY_ADDR / SUPREMA_GATEWAY_CA_CERT).`;
       }
-
-      return {
-        success: false,
-        error: classified.message,
-        latencyMs: Date.now() - start,
-      };
+      return { success: false, error: message, latencyMs: Date.now() - start };
     }
   }
 
-  /**
-   * Fetches incremental logs via BioStar 2 event log search API.
-   */
   public async fetchLogs(
     device: DeviceModel,
     cursor?: SyncCursor,
@@ -163,51 +202,24 @@ export class SupremaDeviceAdapter
       throw new Error('Fetch logs operation aborted');
     }
 
-    if (host === 'mock-biostar') {
-      const simulator = new DeviceSimulator({
-        organizationId: device.organizationId,
-        branchId: device.branchId ?? '1',
-        deviceId: device.id,
-        deviceSerialNumber: device.serialNumber ?? `SUPREMA-${device.deviceCode}`,
-        vendor: DeviceVendor.SUPREMA,
-        adapter: 'suprema-biostar2',
-      });
-
-      const simBatch = simulator.generateBatch(5, {
-        startTime: cursor?.lastLogTimestamp ? new Date(cursor.lastLogTimestamp) : undefined,
-      });
-
-      const lastItem = simBatch[simBatch.length - 1];
-      return {
-        events: simBatch,
-        nextCursor: {
-          lastLogTimestamp: lastItem?.deviceTime ?? new Date().toISOString(),
-          lastLogIndex: (cursor?.lastLogIndex ?? 0) + simBatch.length,
-        },
-        hasMore: false,
-        checkpoint: lastItem?.deviceTime,
-      };
+    if (this.isMockHost(host)) {
+      return this.simulatedBatch(device, cursor);
     }
 
     try {
-      const client = this.createClient(device);
-      const limit = 50;
-      const offset = cursor?.lastLogIndex ?? 0;
+      const manager = this.getConnectionManager();
+      const deviceId = await manager.ensureConnected(device);
+      const startEventId = cursor?.lastLogIndex ?? 0;
 
-      const result = await client.searchEvents({
-        limit,
-        offset,
-        deviceId: device.deviceCode,
-        startTime: cursor?.lastLogTimestamp,
-      });
+      const logs = await this.getClient().getLog(deviceId, startEventId, FETCH_LIMIT);
+      const catalog = this.getCatalog();
 
-      const rows: BioStarEventLog[] = result.EventCollection?.rows ?? [];
-      const events: RawAttendanceEvent[] = rows.map((r) =>
-        mapBioStarEventToRawAttendance(device, r),
-      );
+      const events: RawAttendanceEvent[] = logs
+        .filter((log) => isPunchEvent(log.eventCode) && !!log.userID)
+        .map((log) => mapGsdkEventToRawAttendance(device, log, catalog, EventSource.PULL));
 
-      const total = parseInt(String(result.EventCollection?.total || 0), 10);
-      const hasMore = offset + events.length < total;
+      // Advance the cursor by the last RAW log id so non-punch ids are not re-scanned.
+      const maxRawId = logs.reduce((max, log) => (log.ID > max ? log.ID : max), startEventId);
       const lastRecord = events[events.length - 1];
 
       return {
@@ -215,65 +227,50 @@ export class SupremaDeviceAdapter
         nextCursor: {
           lastLogTimestamp:
             lastRecord?.deviceTime ?? cursor?.lastLogTimestamp ?? new Date().toISOString(),
-          lastLogIndex: offset + events.length,
+          lastLogIndex: logs.length > 0 ? maxRawId + 1 : startEventId,
         },
-        hasMore,
+        hasMore: logs.length === FETCH_LIMIT,
         checkpoint: lastRecord?.deviceTime,
       };
     } catch (err: unknown) {
-      if (this.isMockHost(host)) {
-        const simulator = new DeviceSimulator({
-          organizationId: device.organizationId,
-          branchId: device.branchId ?? '1',
-          deviceId: device.id,
-          deviceSerialNumber: device.serialNumber ?? `SUPREMA-${device.deviceCode}`,
-          vendor: DeviceVendor.SUPREMA,
-          adapter: 'suprema-biostar2',
-        });
-
-        const simBatch = simulator.generateBatch(5, {
-          startTime: cursor?.lastLogTimestamp ? new Date(cursor.lastLogTimestamp) : undefined,
-        });
-
-        const lastItem = simBatch[simBatch.length - 1];
-        return {
-          events: simBatch,
-          nextCursor: {
-            lastLogTimestamp: lastItem?.deviceTime ?? new Date().toISOString(),
-            lastLogIndex: (cursor?.lastLogIndex ?? 0) + simBatch.length,
-          },
-          hasMore: false,
-          checkpoint: lastItem?.deviceTime,
-        };
-      }
-
+      this.getConnectionManager().invalidate(device.id);
       const classified = classifySupremaError(err);
-      throw new Error(`BioStar 2 fetchLogs failed (${classified.category}): ${classified.message}`);
+      throw new Error(
+        `Suprema G-SDK fetchLogs failed (${classified.category}): ${classified.message}`,
+      );
     }
   }
 
-  /**
-   * Queries server/device status.
-   */
-  public async getStatus(device: DeviceModel, signal?: AbortSignal): Promise<DeviceStatus> {
-    const testResult = await this.testConnection(device, signal);
-    return testResult.success ? DeviceStatus.ONLINE : DeviceStatus.OFFLINE;
+  private simulatedBatch(device: DeviceModel, cursor?: SyncCursor): FetchLogsResult {
+    const simulator = this.buildSimulator(device);
+    const simBatch = simulator.generateBatch(5, {
+      startTime: cursor?.lastLogTimestamp ? new Date(cursor.lastLogTimestamp) : undefined,
+    });
+    const lastItem = simBatch[simBatch.length - 1];
+    return {
+      events: simBatch,
+      nextCursor: {
+        lastLogTimestamp: lastItem?.deviceTime ?? new Date().toISOString(),
+        lastLogIndex: (cursor?.lastLogIndex ?? 0) + simBatch.length,
+      },
+      hasMore: false,
+      checkpoint: lastItem?.deviceTime,
+    };
   }
 
-  /**
-   * Queries device specifications.
-   */
+  public async getStatus(device: DeviceModel, signal?: AbortSignal): Promise<DeviceStatus> {
+    const result = await this.testConnection(device, signal);
+    return result.success ? DeviceStatus.ONLINE : DeviceStatus.OFFLINE;
+  }
+
   public async getDeviceInfo(
     device: DeviceModel,
     signal?: AbortSignal,
   ): Promise<Record<string, unknown>> {
-    const testResult = await this.testConnection(device, signal);
-    return (testResult.details as Record<string, unknown>) ?? {};
+    const result = await this.testConnection(device, signal);
+    return (result.details as Record<string, unknown>) ?? {};
   }
 
-  /**
-   * Reads RTC clock.
-   */
   public async getClock(device: DeviceModel, signal?: AbortSignal): Promise<DeviceClock> {
     const host = device.host ?? '127.0.0.1';
 
@@ -281,108 +278,50 @@ export class SupremaDeviceAdapter
       throw new Error('Get clock operation aborted');
     }
 
-    if (host === 'mock-biostar') {
+    if (this.isMockHost(host)) {
       const now = new Date();
-      return {
-        deviceTime: now,
-        serverTime: now,
-        driftSeconds: 0,
-        synchronized: true,
-      };
+      return { deviceTime: now, serverTime: now, driftSeconds: 0, synchronized: true };
     }
 
-    try {
-      const client = this.createClient(device);
-      const timeInfo = await client.getTime(device.deviceCode);
-      const deviceTime = new Date(timeInfo.device_time);
-      const serverTime = new Date();
-      const driftSeconds = Math.abs(
-        Math.round((serverTime.getTime() - deviceTime.getTime()) / 1000),
-      );
-
-      return {
-        deviceTime,
-        serverTime,
-        driftSeconds,
-        synchronized: driftSeconds < 60,
-      };
-    } catch {
-      const now = new Date();
-      return {
-        deviceTime: now,
-        serverTime: now,
-        driftSeconds: 0,
-        synchronized: true,
-      };
-    }
+    const manager = this.getConnectionManager();
+    const deviceId = await manager.ensureConnected(device);
+    const gmtSeconds = await this.getClient().getTime(deviceId);
+    const deviceTime = new Date(gmtSeconds * 1000);
+    const serverTime = new Date();
+    const driftSeconds = Math.abs(Math.round((serverTime.getTime() - deviceTime.getTime()) / 1000));
+    return { deviceTime, serverTime, driftSeconds, synchronized: driftSeconds < 60 };
   }
 
-  /**
-   * Sets RTC clock.
-   */
   public async setClock(device: DeviceModel, timestamp: Date, signal?: AbortSignal): Promise<void> {
     const host = device.host ?? '127.0.0.1';
 
     if (signal?.aborted) {
       throw new Error('Set clock operation aborted');
     }
-
-    if (host === 'mock-biostar') {
+    if (this.isMockHost(host)) {
       return;
     }
 
-    try {
-      const client = this.createClient(device);
-      await client.setTime(device.deviceCode, timestamp.toISOString());
-    } catch (err: unknown) {
-      if (!this.mockFallback) {
-        throw err;
-      }
-    }
+    const manager = this.getConnectionManager();
+    const deviceId = await manager.ensureConnected(device);
+    await this.getClient().setTime(deviceId, Math.floor(timestamp.getTime() / 1000));
   }
 
   /**
-   * Handles push payloads from BioStar webhooks or HTTP notifications.
-   */
-  public async handlePush(request: {
-    device: DeviceModel;
-    payload: unknown;
-  }): Promise<RawAttendanceEvent[]> {
-    const events: RawAttendanceEvent[] = [];
-    try {
-      const payloadObj =
-        typeof request.payload === 'string' ? JSON.parse(request.payload) : request.payload;
-      const log = (payloadObj?.Event ?? payloadObj) as BioStarEventLog;
-      if (log && log.datetime) {
-        events.push(mapBioStarEventToRawAttendance(request.device, log, EventSource.PUSH));
-      }
-    } catch (err: unknown) {
-      this.logger?.warn(
-        { error: err instanceof Error ? err.message : String(err) },
-        'Failed to parse BioStar 2 push payload',
-      );
-    }
-    return events;
-  }
-
-  /**
-   * Subscribes to real-time WebSocket stream (RealtimeAttendanceAdapter contract).
+   * Subscribes to the real-time log stream (RealtimeAttendanceAdapter contract).
+   * Returns an unsubscribe function.
    */
   public async subscribe(
     device: DeviceModel,
     handler: (event: RawAttendanceEvent) => Promise<void>,
     signal?: AbortSignal,
   ): Promise<() => void> {
-    const client = this.createClient(device);
-    const consumer = new BioStarRealtimeConsumer(
-      client,
-      {
-        host: device.host ?? '127.0.0.1',
-        port: device.port ?? this.defaultPort,
-        username: (device.metadata?.['username'] as string) || 'admin',
-        password: (device.metadata?.['password'] as string) || 'Admin12345',
-        useHttps: this.useHttps,
-      },
+    const manager = this.getConnectionManager();
+    const deviceId = await manager.ensureConnected(device);
+    const consumer = new GsdkRealtimeConsumer(
+      this.getClient(),
+      deviceId,
+      this.getCatalog(),
       this.logger,
     );
 
@@ -403,9 +342,7 @@ export class SupremaDeviceAdapter
     };
   }
 
-  /**
-   * Starts real-time event streaming.
-   */
+  /** Starts real-time streaming (parity helper with other adapters). */
   public async startRealtime(
     device: DeviceModel,
     onEvent: (event: RawAttendanceEvent) => Promise<void> | void,
@@ -415,14 +352,25 @@ export class SupremaDeviceAdapter
     });
   }
 
-  /**
-   * Stops real-time event streaming.
-   */
+  /** Stops real-time streaming for a device. */
   public async stopRealtime(device: DeviceModel): Promise<void> {
     const consumer = this.realtimeConsumers.get(device.id);
     if (consumer) {
       consumer.stop();
       this.realtimeConsumers.delete(device.id);
+    }
+  }
+
+  /** Releases gRPC resources. Call on shutdown. */
+  public close(): void {
+    for (const consumer of this.realtimeConsumers.values()) {
+      consumer.stop();
+    }
+    this.realtimeConsumers.clear();
+    if (this.client) {
+      this.client.close();
+      this.client = null;
+      this.connectionManager = null;
     }
   }
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Bell, ArrowUpRight, Search, Sun, Moon, Laptop, ShieldCheck } from 'lucide-react';
+import { Bell, ArrowUpRight, Search, Sun, Moon, Laptop } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Avatar, AvatarFallback } from './ui/avatar';
@@ -14,14 +14,16 @@ import {
 } from './ui/dropdown-menu';
 
 export function Header() {
-  const { theme, setTheme, resolvedTheme } = useTheme();
+  const { setTheme, resolvedTheme } = useTheme();
 
   return (
     <header className="h-14 border-b border-border bg-card/80 backdrop-blur-md px-6 flex items-center justify-between sticky top-0 z-20 transition-colors">
       {/* Left: Breadcrumbs & Search */}
       <div className="flex items-center gap-6">
         <div className="flex items-center gap-2 text-xs text-muted-foreground font-medium">
-          <span className="hover:text-foreground transition-colors cursor-pointer">Enterprise Attendance</span>
+          <span className="hover:text-foreground transition-colors cursor-pointer">
+            Enterprise Attendance
+          </span>
           <span className="text-border">/</span>
           <span className="text-foreground font-semibold">Control Plane</span>
         </div>
@@ -41,7 +43,10 @@ export function Header() {
 
       {/* Right: Telemetry, Theme Toggle & User */}
       <div className="flex items-center gap-3">
-        <Badge variant="outline" className="gap-1.5 py-1 px-2.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-xs font-semibold">
+        <Badge
+          variant="outline"
+          className="gap-1.5 py-1 px-2.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-xs font-semibold"
+        >
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
           <span>Cluster Active</span>
         </Badge>
@@ -56,7 +61,11 @@ export function Header() {
         {/* Theme Mode Switcher */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-muted-foreground hover:text-foreground"
+            >
               {resolvedTheme === 'dark' ? (
                 <Moon className="w-4 h-4" />
               ) : (
@@ -81,7 +90,11 @@ export function Header() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-muted-foreground hover:text-foreground"
+        >
           <Bell className="w-4 h-4" />
         </Button>
 

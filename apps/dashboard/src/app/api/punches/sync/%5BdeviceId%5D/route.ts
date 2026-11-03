@@ -2,7 +2,10 @@ import { NextResponse } from 'next/server';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
-export async function POST(_request: Request, { params }: { params: Promise<{ deviceId: string }> }) {
+export async function POST(
+  _request: Request,
+  { params }: { params: Promise<{ deviceId: string }> },
+) {
   try {
     const { deviceId } = await params;
     const res = await fetch(`${API_BASE}/api/v1/punches/sync/${encodeURIComponent(deviceId)}`, {

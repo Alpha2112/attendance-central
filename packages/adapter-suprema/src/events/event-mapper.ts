@@ -1,76 +1,43 @@
+import { randomUUID } from 'node:crypto';
 import {
   type RawAttendanceEvent,
   type DeviceModel,
   DeviceVendor,
   EventSource,
-  PunchType,
 } from '@attendance/contracts';
-import { type BioStarEventLog, BioStarEventTypeId, BioStarTnaKey } from '../types/biostar.types.js';
-import { randomUUID } from 'node:crypto';
+import { type GsdkEventLog } from '../types/gsdk.types.js';
+import { EventCodeCatalog, mapTnaKeyToPunchType } from './event-codes.js';
 
-/**
- * Maps BioStar 2 event type codes to platform VerificationType code string.
- */
-export function mapBioStarEventTypeToVerifyType(code: number): string {
-  switch (code) {
-    case BioStarEventTypeId.VERIFY_SUCCESS_FACE:
-    case BioStarEventTypeId.ACCESS_GRANTED_FACE:
-      return '15'; // FACE
-    case BioStarEventTypeId.VERIFY_SUCCESS_FINGERPRINT:
-    case BioStarEventTypeId.ACCESS_GRANTED_FINGERPRINT:
-      return '1'; // FINGERPRINT
-    case BioStarEventTypeId.VERIFY_SUCCESS_CARD:
-    case BioStarEventTypeId.ACCESS_GRANTED_CARD:
-      return '4'; // CARD
-    case BioStarEventTypeId.VERIFY_SUCCESS_PIN:
-    case BioStarEventTypeId.ACCESS_GRANTED_PIN:
-      return '2'; // PIN
-    case BioStarEventTypeId.VERIFY_SUCCESS_QR:
-    case BioStarEventTypeId.ACCESS_GRANTED_QR:
-      return '30'; // QR
-    case BioStarEventTypeId.VERIFY_SUCCESS_MOBILE_BLE:
-      return '40'; // BLE / MOBILE
-    default:
-      return '0'; // UNKNOWN
+/** Adapter tag written to every raw event produced by this connector. */
+export const SUPREMA_ADAPTER_TAG = 'suprema-gsdk';
+
+function toIsoFromUnixSeconds(timestampSec: number): string {
+  if (!timestampSec || timestampSec <= 0) {
+    return new Date().toISOString();
   }
+  return new Date(timestampSec * 1000).toISOString();
+}
+
+function cardDataToBase64(cardData: GsdkEventLog['cardData']): string | undefined {
+  if (!cardData) return undefined;
+  const buf = Buffer.isBuffer(cardData) ? cardData : Buffer.from(cardData);
+  return buf.length > 0 ? buf.toString('base64') : undefined;
 }
 
 /**
- * Maps BioStar 2 T&A key to platform PunchType string.
+ * Maps a single G-SDK event log into the canonical {@link RawAttendanceEvent}.
+ *
+ * The vendor event id is `<gatewayDeviceID>:<logID>`; the log ID is a monotonic
+ * per-device counter, which makes it a stable idempotency key shared by live
+ * delivery and historical backfill.
  */
-export function mapBioStarTnaKeyToPunchType(tnaKey?: number): string {
-  switch (tnaKey) {
-    case BioStarTnaKey.CHECK_IN:
-      return PunchType.IN;
-    case BioStarTnaKey.CHECK_OUT:
-      return PunchType.OUT;
-    case BioStarTnaKey.BREAK_OUT:
-      return PunchType.BREAK_OUT;
-    case BioStarTnaKey.BREAK_IN:
-      return PunchType.BREAK_IN;
-    default:
-      return 'AUTO';
-  }
-}
-
-/**
- * Maps a single BioStar 2 event log to canonical RawAttendanceEvent.
- */
-export function mapBioStarEventToRawAttendance(
+export function mapGsdkEventToRawAttendance(
   device: DeviceModel,
-  log: BioStarEventLog,
+  log: GsdkEventLog,
+  catalog: EventCodeCatalog,
   source: EventSource = EventSource.PULL,
 ): RawAttendanceEvent {
-  const userId =
-    log.user_id?.user_id || log.user_name || (log.id ? String(log.id) : 'UNKNOWN_USER');
-
-  // Convert device time to ISO UTC
-  const parsedDate = new Date(log.datetime);
-  const deviceTime = isNaN(parsedDate.getTime())
-    ? new Date().toISOString()
-    : parsedDate.toISOString();
-
-  const eventCode = log.event_type_id?.code ?? 0;
+  const userId = log.userID && log.userID.length > 0 ? log.userID : 'UNKNOWN_USER';
 
   return {
     eventId: randomUUID(),
@@ -81,26 +48,26 @@ export function mapBioStarEventToRawAttendance(
     deviceId: device.id,
     deviceSerialNumber: device.serialNumber ?? `SUPREMA-${device.deviceCode}`,
     vendor: DeviceVendor.SUPREMA,
-    adapter: 'suprema-biostar2',
-    vendorEventId: String(log.id),
+    adapter: SUPREMA_ADAPTER_TAG,
+    vendorEventId: `${log.deviceID}:${log.ID}`,
     vendorUserId: userId,
-    deviceTime,
+    deviceTime: toIsoFromUnixSeconds(log.timestamp),
     receivedAt: new Date().toISOString(),
-    vendorPunchType: mapBioStarTnaKeyToPunchType(log.tna_key),
-    vendorVerificationType: mapBioStarEventTypeToVerifyType(eventCode),
+    vendorPunchType: mapTnaKeyToPunchType(log.TNAKey),
+    vendorVerificationType: catalog.verificationType(log.eventCode, log.subCode),
     source,
     rawPayload: {
-      id: log.id,
-      datetime: log.datetime,
-      event_type_id: log.event_type_id,
-      device_id: log.device_id,
-      user_id: log.user_id,
-      user_name: log.user_name,
-      tna_key: log.tna_key,
-      door_id: log.door_id,
+      ID: log.ID,
+      timestamp: log.timestamp,
+      deviceID: log.deviceID,
+      userID: log.userID,
+      eventCode: log.eventCode,
+      subCode: log.subCode,
+      eventDesc: catalog.describe(log.eventCode, log.subCode),
+      TNAKey: log.TNAKey,
+      hasImage: log.hasImage,
       temperature: log.temperature,
-      mask_status: log.mask_status,
-      has_image: log.has_image,
+      cardData: cardDataToBase64(log.cardData),
     },
   };
 }

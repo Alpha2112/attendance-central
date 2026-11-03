@@ -6,21 +6,23 @@ export class OutboxRepository {
   constructor(private readonly client: DatabaseClient) {}
 
   public async create(dto: CreateOutboxEventDto, connection?: PoolConnection): Promise<number> {
+    const orgId = dto.organizationId ?? null;
     const sql = dto.availableAt
       ? `INSERT INTO outbox_events (
-          event_id, event_type, aggregate_type, aggregate_id,
+          event_id, event_type, aggregate_type, aggregate_id, organization_id,
           payload, status, available_at
-        ) VALUES (?, ?, ?, ?, ?, 'PENDING', ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, 'PENDING', ?)`
       : `INSERT INTO outbox_events (
-          event_id, event_type, aggregate_type, aggregate_id,
+          event_id, event_type, aggregate_type, aggregate_id, organization_id,
           payload, status, available_at
-        ) VALUES (?, ?, ?, ?, ?, 'PENDING', CURRENT_TIMESTAMP(6))`;
+        ) VALUES (?, ?, ?, ?, ?, ?, 'PENDING', CURRENT_TIMESTAMP(6))`;
 
     const params: unknown[] = [
       dto.eventId,
       dto.eventType,
       dto.aggregateType,
       dto.aggregateId,
+      orgId,
       JSON.stringify(dto.payload),
     ];
 

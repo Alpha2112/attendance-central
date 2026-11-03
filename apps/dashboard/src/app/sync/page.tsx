@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { RefreshCw, Play, CheckCircle2, Clock, Sparkles, Layers, ShieldCheck, Zap } from 'lucide-react';
+import { RefreshCw, Play, CheckCircle2, Clock, Sparkles, ShieldCheck } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -97,7 +97,10 @@ export default function SyncPage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-5">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <Badge variant="outline" className="text-xs font-semibold px-2 py-0.5 bg-muted/60 text-muted-foreground">
+            <Badge
+              variant="outline"
+              className="text-xs font-semibold px-2 py-0.5 bg-muted/60 text-muted-foreground"
+            >
               Scheduler & Telemetry
             </Badge>
             <Badge variant="outline" className="text-xs font-mono text-muted-foreground">
@@ -109,7 +112,8 @@ export default function SyncPage() {
             Device Synchronization Orchestrator
           </h1>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Distributed checkpoint tracking, incremental sync locks, and historical reconciliation jobs.
+            Distributed checkpoint tracking, incremental sync locks, and historical reconciliation
+            jobs.
           </p>
         </div>
 
@@ -181,7 +185,9 @@ export default function SyncPage() {
         <CardHeader className="p-4 pb-3 border-b border-border/80">
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="text-base font-semibold text-foreground">Synchronization Job History</CardTitle>
+              <CardTitle className="text-base font-semibold text-foreground">
+                Synchronization Job History
+              </CardTitle>
               <CardDescription className="text-xs text-muted-foreground">
                 Persisted in <code className="font-mono text-foreground">sync_jobs</code> and{' '}
                 <code className="font-mono text-foreground">sync_checkpoints</code>.
@@ -209,7 +215,10 @@ export default function SyncPage() {
             </TableHeader>
             <TableBody>
               {mockSyncJobs.map((job) => (
-                <TableRow key={job.id} className="border-border/40 hover:bg-muted/30 transition-colors text-sm">
+                <TableRow
+                  key={job.id}
+                  className="border-border/40 hover:bg-muted/30 transition-colors text-sm"
+                >
                   <TableCell className="py-3 font-mono text-xs font-semibold text-foreground">
                     {job.id}
                   </TableCell>
@@ -222,7 +231,10 @@ export default function SyncPage() {
                     </Badge>
                   </TableCell>
                   <TableCell className="py-3">
-                    <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px] font-semibold">
+                    <Badge
+                      variant="outline"
+                      className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px] font-semibold"
+                    >
                       {job.status}
                     </Badge>
                   </TableCell>

@@ -81,18 +81,23 @@ export class DevicesService {
       return await this.update(existing.id, dto);
     }
 
+    const vendorUpper = dto.vendor.toUpperCase();
+    const defaultProtocol =
+      vendorUpper === 'HIKVISION' ? 'ISAPI' : vendorUpper === 'SUPREMA' ? 'GSDK' : 'STANDALONE_SDK';
+    const defaultPort =
+      vendorUpper === 'HIKVISION' ? 80 : vendorUpper === 'SUPREMA' ? 51211 : 4370;
+
     try {
       const newId = await this.deviceRepo.create({
         organizationId: orgId,
         deviceCode: dto.deviceCode,
         name: dto.name,
-        vendor: dto.vendor.toUpperCase(),
+        vendor: vendorUpper,
         model: dto.model,
-        protocol:
-          dto.protocol || (dto.vendor.toUpperCase() === 'HIKVISION' ? 'ISAPI' : 'STANDALONE_SDK'),
+        protocol: dto.protocol || defaultProtocol,
         connectionMode: dto.connectionMode || 'PUSH',
         host: dto.host,
-        port: dto.port || (dto.vendor.toUpperCase() === 'HIKVISION' ? 80 : 4370),
+        port: dto.port || defaultPort,
         timezone: dto.timezone || 'UTC',
         status: dto.status || 'ONLINE',
         metadata,

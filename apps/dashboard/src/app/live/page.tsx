@@ -9,10 +9,6 @@ import {
   Clock,
   Sparkles,
   RefreshCw,
-  Cpu,
-  Layers,
-  Search,
-  ExternalLink,
   ShieldCheck,
   Zap,
   Fingerprint as FingerprintIcon,
@@ -70,7 +66,9 @@ export default function LiveStreamPage() {
   const [simVendorUserId, setSimVendorUserId] = useState('1001');
   const [simDeviceCode, setSimDeviceCode] = useState('DEV-HQ-HIK01');
   const [simPunchType, setSimPunchType] = useState<'IN' | 'OUT' | 'BREAK_OUT' | 'BREAK_IN'>('IN');
-  const [simVerification, setSimVerification] = useState<'FACE' | 'FINGERPRINT' | 'CARD' | 'PIN'>('FACE');
+  const [simVerification, setSimVerification] = useState<'FACE' | 'FINGERPRINT' | 'CARD' | 'PIN'>(
+    'FACE',
+  );
   const [simCardNo, setSimCardNo] = useState('CRD-88910');
   const [simLoading, setSimLoading] = useState(false);
 
@@ -110,7 +108,7 @@ export default function LiveStreamPage() {
       const data = await res.json();
       if (data.success) {
         setSyncFeedback(
-          `⚡ Synced ${data.syncedCount} hardware events from Hikvision (${data.deviceCode}). ${data.newCount} new ingested, ${data.duplicateCount} duplicates safely deduplicated.`
+          `⚡ Synced ${data.syncedCount} hardware events from Hikvision (${data.deviceCode}). ${data.newCount} new ingested, ${data.duplicateCount} duplicates safely deduplicated.`,
         );
         fetchLivePunches();
       } else {
@@ -175,7 +173,10 @@ export default function LiveStreamPage() {
                 <h1 className="text-2xl font-bold tracking-tight text-foreground">
                   Live Biometric Punch Stream
                 </h1>
-                <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-xs font-semibold">
+                <Badge
+                  variant="outline"
+                  className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-xs font-semibold"
+                >
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-ping mr-1.5" />
                   KAFKA LIVE
                 </Badge>
@@ -217,7 +218,11 @@ export default function LiveStreamPage() {
             variant="outline"
             size="sm"
             onClick={() => setIsLive(!isLive)}
-            className={isLive ? 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 font-medium' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 font-medium'}
+            className={
+              isLive
+                ? 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 font-medium'
+                : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 font-medium'
+            }
           >
             {isLive ? (
               <>
@@ -241,7 +246,12 @@ export default function LiveStreamPage() {
             <CheckCircle2 className="h-4 w-4 text-blue-500 shrink-0" />
             <span>{syncFeedback}</span>
           </div>
-          <Button variant="ghost" size="sm" onClick={() => setSyncFeedback(null)} className="h-6 w-6 p-0 text-muted-foreground">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setSyncFeedback(null)}
+            className="h-6 w-6 p-0 text-muted-foreground"
+          >
             <X className="h-3.5 w-3.5" />
           </Button>
         </div>
@@ -295,7 +305,9 @@ export default function LiveStreamPage() {
         <CardHeader className="pb-3 border-b border-border/80">
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="text-base font-semibold text-foreground">Real-Time Ingestion Stream</CardTitle>
+              <CardTitle className="text-base font-semibold text-foreground">
+                Real-Time Ingestion Stream
+              </CardTitle>
               <CardDescription className="text-xs text-muted-foreground">
                 Normalized punches arriving across all connected terminals in real-time.
               </CardDescription>
@@ -337,7 +349,10 @@ export default function LiveStreamPage() {
                       <FingerprintIcon className="h-10 w-10 mx-auto text-muted-foreground/40" />
                       <div className="font-semibold text-foreground">No Live Punches Buffered</div>
                       <div className="text-xs text-muted-foreground">
-                        Ready for testing! Present your face, card, or fingerprint on your physical Hikvision terminal (<code className="text-foreground font-mono">192.168.100.186</code>), then click <strong>Sync Real Terminal</strong>.
+                        Ready for testing! Present your face, card, or fingerprint on your physical
+                        Hikvision terminal (
+                        <code className="text-foreground font-mono">192.168.100.186</code>), then
+                        click <strong>Sync Real Terminal</strong>.
                       </div>
                     </div>
                   </TableCell>
@@ -362,15 +377,19 @@ export default function LiveStreamPage() {
                             p.vendor === 'HIKVISION'
                               ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30 text-[10px] font-semibold'
                               : p.vendor === 'ZKTECO'
-                              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px] font-semibold'
-                              : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 text-[10px] font-semibold'
+                                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px] font-semibold'
+                                : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 text-[10px] font-semibold'
                           }
                         >
                           {p.vendor}
                         </Badge>
                         <div>
-                          <div className="text-xs font-semibold text-foreground">{p.deviceName}</div>
-                          <div className="text-[11px] text-muted-foreground font-mono">{p.deviceCode}</div>
+                          <div className="text-xs font-semibold text-foreground">
+                            {p.deviceName}
+                          </div>
+                          <div className="text-[11px] text-muted-foreground font-mono">
+                            {p.deviceCode}
+                          </div>
                         </div>
                       </div>
                     </TableCell>
@@ -381,7 +400,9 @@ export default function LiveStreamPage() {
                     </TableCell>
                     <TableCell>
                       <div className="text-xs text-foreground font-medium">{p.punchTime}</div>
-                      <div className="text-[10px] text-muted-foreground font-mono">{p.punchTimeUtc}</div>
+                      <div className="text-[10px] text-muted-foreground font-mono">
+                        {p.punchTimeUtc}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <span className="font-mono text-xs text-muted-foreground">
@@ -420,7 +441,8 @@ export default function LiveStreamPage() {
                     Normalized Punch Event Inspector
                   </h3>
                   <p className="text-xs text-muted-foreground">
-                    Event ID: <span className="font-mono text-foreground">{selectedPunch.id}</span> • Partition:{' '}
+                    Event ID: <span className="font-mono text-foreground">{selectedPunch.id}</span>{' '}
+                    • Partition:{' '}
                     <span className="font-mono text-foreground">{selectedPunch.eventDate}</span>
                   </p>
                 </div>
@@ -438,18 +460,26 @@ export default function LiveStreamPage() {
             <div className="grid grid-cols-2 gap-4 text-xs">
               <div className="p-3.5 rounded-lg bg-muted/20 border border-border/60 space-y-1">
                 <div className="text-muted-foreground font-semibold">EMPLOYEE DETAILS</div>
-                <div className="font-bold text-foreground text-sm">{selectedPunch.employeeName}</div>
-                <div className="text-muted-foreground font-mono">HRMS ID: {selectedPunch.employeeId}</div>
+                <div className="font-bold text-foreground text-sm">
+                  {selectedPunch.employeeName}
+                </div>
+                <div className="text-muted-foreground font-mono">
+                  HRMS ID: {selectedPunch.employeeId}
+                </div>
                 <div className="text-muted-foreground">Department: {selectedPunch.department}</div>
                 {selectedPunch.cardNo && (
-                  <div className="text-muted-foreground font-mono">Card: {selectedPunch.cardNo}</div>
+                  <div className="text-muted-foreground font-mono">
+                    Card: {selectedPunch.cardNo}
+                  </div>
                 )}
               </div>
 
               <div className="p-3.5 rounded-lg bg-muted/20 border border-border/60 space-y-1">
                 <div className="text-muted-foreground font-semibold">TERMINAL HARDWARE</div>
                 <div className="font-bold text-foreground text-sm">{selectedPunch.deviceName}</div>
-                <div className="text-muted-foreground font-mono">Device Code: {selectedPunch.deviceCode}</div>
+                <div className="text-muted-foreground font-mono">
+                  Device Code: {selectedPunch.deviceCode}
+                </div>
                 <div className="text-muted-foreground">Vendor: {selectedPunch.vendor} (ISAPI)</div>
                 <div className="text-muted-foreground">Source: {selectedPunch.source}</div>
               </div>
@@ -458,7 +488,9 @@ export default function LiveStreamPage() {
             {/* SHA-256 Fingerprint */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between text-xs">
-                <span className="font-semibold text-muted-foreground">SHA-256 IDEMPOTENCY FINGERPRINT</span>
+                <span className="font-semibold text-muted-foreground">
+                  SHA-256 IDEMPOTENCY FINGERPRINT
+                </span>
                 <button
                   onClick={() => handleCopyFingerprint(selectedPunch.fingerprint)}
                   className="text-primary hover:underline flex items-center gap-1 text-[11px]"
@@ -474,9 +506,7 @@ export default function LiveStreamPage() {
 
             {/* Kafka Topic Payload Snapshot */}
             <div className="space-y-1.5">
-              <div className="text-xs font-semibold text-muted-foreground">
-                KAFKA TOPIC PAYLOAD
-              </div>
+              <div className="text-xs font-semibold text-muted-foreground">KAFKA TOPIC PAYLOAD</div>
               <pre className="p-3 rounded-lg bg-background text-[11px] font-mono text-muted-foreground overflow-x-auto max-h-48 border border-border">
                 {JSON.stringify(
                   {
@@ -493,7 +523,7 @@ export default function LiveStreamPage() {
                     fingerprint: selectedPunch.fingerprint,
                   },
                   null,
-                  2
+                  2,
                 )}
               </pre>
             </div>
@@ -584,7 +614,9 @@ export default function LiveStreamPage() {
                   <label className="font-semibold text-muted-foreground">Punch Type</label>
                   <select
                     value={simPunchType}
-                    onChange={(e) => setSimPunchType(e.target.value as any)}
+                    onChange={(e) =>
+                      setSimPunchType(e.target.value as 'IN' | 'OUT' | 'BREAK_OUT' | 'BREAK_IN')
+                    }
                     className="w-full h-9 rounded-lg border border-border bg-background px-3 text-xs text-foreground"
                   >
                     <option value="IN">IN (Check In)</option>
@@ -598,7 +630,9 @@ export default function LiveStreamPage() {
                   <label className="font-semibold text-muted-foreground">Verification Mode</label>
                   <select
                     value={simVerification}
-                    onChange={(e) => setSimVerification(e.target.value as any)}
+                    onChange={(e) =>
+                      setSimVerification(e.target.value as 'FACE' | 'FINGERPRINT' | 'CARD' | 'PIN')
+                    }
                     className="w-full h-9 rounded-lg border border-border bg-background px-3 text-xs text-foreground"
                   >
                     <option value="FACE">FACE (Facial Recognition)</option>

@@ -10,9 +10,6 @@ export async function POST() {
     const data = await res.json();
     return NextResponse.json(data, { status: res.status });
   } catch {
-    return NextResponse.json(
-      { error: 'Failed to connect to API backend' },
-      { status: 502 },
-    );
+    return NextResponse.json({ error: 'Failed to connect to API backend' }, { status: 502 });
   }
 }

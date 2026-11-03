@@ -44,3 +44,9 @@ Thumbs.db
 # Temp files
 tmp/
 temp/
+
+# Licensed Suprema G-SDK material — must NOT be committed (SDK License Agreement §3.3).
+# Provide these locally from your Suprema Download Center copy.
+vendor/
+deploy/suprema-gateway/bin/
+deploy/suprema-gateway/cert/

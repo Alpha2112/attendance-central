@@ -23,7 +23,6 @@ import {
   AlertCircle,
   Play,
   Square,
-  Edit2,
   Trash2,
   MoreVertical,
   Copy,
@@ -122,7 +121,9 @@ export default function DevicesPage() {
   const [isDeleting, setIsDeleting] = useState(false);
 
   // Form State
-  const [formVendor, setFormVendor] = useState<'HIKVISION' | 'ZKTECO' | 'SUPREMA'>('HIKVISION');
+  const [formVendor, setFormVendor] = useState<'HIKVISION' | 'ZKTECO' | 'SUPREMA' | 'ANVIZ'>(
+    'HIKVISION',
+  );
   const [formName, setFormName] = useState('HQ Turnstile 02 (Exit Face Term)');
   const [formCode, setFormCode] = useState('DEV-HQ-HIK01');
   const [formModel, setFormModel] = useState('DS-K1T321MFWX');
@@ -140,8 +141,15 @@ export default function DevicesPage() {
     setTimeout(() => setToastMessage(null), 4000);
   };
 
+  // Guards against typos like "192.168.1/3" (slash instead of dot) before we probe/save.
+  const isValidHost = (value: string): boolean => {
+    const host = value.trim();
+    if (!host) return false;
+    return /^[a-zA-Z0-9.-]+$/.test(host);
+  };
+
   // Vendor switch helper
-  const handleVendorSelect = (vendor: 'HIKVISION' | 'ZKTECO' | 'SUPREMA') => {
+  const handleVendorSelect = (vendor: 'HIKVISION' | 'ZKTECO' | 'SUPREMA' | 'ANVIZ') => {
     setFormVendor(vendor);
     setModalTestResult(null);
     if (vendor === 'HIKVISION') {
@@ -155,9 +163,14 @@ export default function DevicesPage() {
       setFormConnectionMode('PULL');
       setFormUsername('admin');
     } else if (vendor === 'SUPREMA') {
-      setFormPort('80');
+      setFormPort('51211');
       setFormModel('BioStation 3');
       setFormConnectionMode('REALTIME');
+      setFormUsername('admin');
+    } else if (vendor === 'ANVIZ') {
+      setFormPort('5010');
+      setFormModel('FacePass 7 Pro');
+      setFormConnectionMode('PUSH');
       setFormUsername('admin');
     }
   };
@@ -231,7 +244,11 @@ export default function DevicesPage() {
   const handleOpenEdit = (dev: DeviceItem) => {
     setIsEditing(true);
     setEditingDeviceId(dev.id);
-    setFormVendor(dev.vendor === 'ZKTECO' || dev.vendor === 'SUPREMA' ? dev.vendor : 'HIKVISION');
+    setFormVendor(
+      dev.vendor === 'ZKTECO' || dev.vendor === 'SUPREMA' || dev.vendor === 'ANVIZ'
+        ? dev.vendor
+        : 'HIKVISION',
+    );
     setFormName(dev.name);
     setFormCode(dev.code);
     setFormModel(dev.model);
@@ -254,7 +271,11 @@ export default function DevicesPage() {
   const handleDuplicate = (dev: DeviceItem) => {
     setIsEditing(false);
     setEditingDeviceId(null);
-    setFormVendor(dev.vendor === 'ZKTECO' || dev.vendor === 'SUPREMA' ? dev.vendor : 'HIKVISION');
+    setFormVendor(
+      dev.vendor === 'ZKTECO' || dev.vendor === 'SUPREMA' || dev.vendor === 'ANVIZ'
+        ? dev.vendor
+        : 'HIKVISION',
+    );
     setFormName(`${dev.name} (Copy)`);
     setFormCode(`${dev.code}-COPY`);
     setFormModel(dev.model);
@@ -370,6 +391,13 @@ export default function DevicesPage() {
 
   // Test Connection inside Modal
   const handleModalTest = async () => {
+    if (!isValidHost(formHost)) {
+      setModalTestResult({
+        success: false,
+        message: `Invalid IP / host address "${formHost}". Use a valid address like 192.168.1.3 (dots, not slashes or spaces).`,
+      });
+      return;
+    }
     setIsModalTesting(true);
     setModalTestResult(null);
     try {
@@ -381,7 +409,7 @@ export default function DevicesPage() {
           name: formName,
           vendor: formVendor,
           model: formModel,
-          host: formHost,
+          host: formHost.trim(),
           port: parseInt(formPort, 10) || (formVendor === 'HIKVISION' ? 80 : 4370),
           username: formUsername,
           password: formPassword,
@@ -424,6 +452,12 @@ export default function DevicesPage() {
   // Submit device (Create or Edit)
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isValidHost(formHost)) {
+      setModalSubmitError(
+        `Invalid IP / host address "${formHost}". Use a valid address like 192.168.1.3 (check for typos such as "/" instead of ".").`,
+      );
+      return;
+    }
     setIsSubmitting(true);
     setModalSubmitError(null);
     try {
@@ -438,7 +472,7 @@ export default function DevicesPage() {
           name: formName,
           vendor: formVendor,
           model: formModel,
-          host: formHost,
+          host: formHost.trim(),
           port: parseInt(formPort, 10) || (formVendor === 'HIKVISION' ? 80 : 4370),
           username: formUsername,
           password: formPassword,
@@ -510,7 +544,10 @@ export default function DevicesPage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-5">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <Badge variant="outline" className="text-xs font-semibold px-2 py-0.5 bg-muted/60 text-muted-foreground">
+            <Badge
+              variant="outline"
+              className="text-xs font-semibold px-2 py-0.5 bg-muted/60 text-muted-foreground"
+            >
               Hardware Fleet
             </Badge>
             <Badge variant="outline" className="text-xs font-mono text-muted-foreground">
@@ -522,7 +559,8 @@ export default function DevicesPage() {
             Device Fleet Registry
           </h1>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Dynamic hardware configuration, ISAPI credentials, live telemetry, and ingestion controls.
+            Dynamic hardware configuration, ISAPI credentials, live telemetry, and ingestion
+            controls.
           </p>
         </div>
 
@@ -538,11 +576,7 @@ export default function DevicesPage() {
             {isRefreshing ? 'Refreshing...' : 'Refresh Fleet'}
           </Button>
 
-          <Button
-            size="sm"
-            className="font-semibold shadow-xs"
-            onClick={handleOpenRegister}
-          >
+          <Button size="sm" className="font-semibold shadow-xs" onClick={handleOpenRegister}>
             <Plus className="h-4 w-4 mr-1.5" />
             Register Device
           </Button>
@@ -598,7 +632,7 @@ export default function DevicesPage() {
             <span className="text-xs text-muted-foreground mr-1 flex items-center gap-1 font-semibold">
               <Filter className="h-3.5 w-3.5" /> Vendor:
             </span>
-            {['ALL', 'HIKVISION', 'ZKTECO', 'SUPREMA'].map((v) => (
+            {['ALL', 'HIKVISION', 'ZKTECO', 'SUPREMA', 'ANVIZ'].map((v) => (
               <Button
                 key={v}
                 variant={selectedVendor === v ? 'default' : 'outline'}
@@ -899,25 +933,27 @@ export default function DevicesPage() {
                 <label className="text-xs font-semibold text-foreground mb-1.5 block">
                   Hardware Vendor Platform <span className="text-rose-500 font-bold">*</span>
                 </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['HIKVISION', 'ZKTECO', 'SUPREMA'] as const).map((v) => (
+                <div className="grid grid-cols-4 gap-2">
+                  {(['HIKVISION', 'ZKTECO', 'SUPREMA', 'ANVIZ'] as const).map((v) => (
                     <button
                       key={v}
                       type="button"
                       onClick={() => handleVendorSelect(v)}
-                      className={`p-2.5 rounded-lg border text-xs font-medium flex flex-col items-center gap-1 transition-all ${
+                      className={`p-2 rounded-lg border text-xs font-medium flex flex-col items-center gap-1 transition-all ${
                         formVendor === v
                           ? 'border-primary bg-primary/10 text-primary ring-1 ring-primary'
                           : 'border-border/60 bg-muted/20 hover:bg-muted/40 text-muted-foreground'
                       }`}
                     >
-                      <span className="font-bold tracking-wider">{v}</span>
-                      <span className="text-[10px] opacity-75 font-mono">
+                      <span className="font-bold tracking-wider text-[11px]">{v}</span>
+                      <span className="text-[9px] opacity-75 font-mono text-center">
                         {v === 'HIKVISION'
                           ? 'ISAPI (Face/Card)'
                           : v === 'ZKTECO'
-                            ? 'Standalone / ADMS'
-                            : 'BioStar 2 API'}
+                            ? 'Standalone/ADMS'
+                            : v === 'SUPREMA'
+                              ? 'G-SDK Gateway'
+                              : 'CrossChex/Push'}
                       </span>
                     </button>
                   ))}
@@ -983,8 +1019,35 @@ export default function DevicesPage() {
                 </div>
               </div>
               <p className="text-[11px] text-muted-foreground -mt-2">
-                💡 <span className="text-sky-400 font-medium">Hikvision Tip:</span> HTTP ISAPI
-                operates on <strong>Port 80</strong>. (Port 8000 in SADP is the command SDK port).
+                {formVendor === 'HIKVISION' && (
+                  <>
+                    💡 <span className="text-sky-500 font-semibold">Hikvision Tip:</span> HTTP ISAPI
+                    operates on <strong>Port 80</strong>. (Port 8000 in SADP is the command SDK
+                    port).
+                  </>
+                )}
+                {formVendor === 'ZKTECO' && (
+                  <>
+                    💡 <span className="text-emerald-500 font-semibold">ZKTeco Tip:</span> ADMS Push
+                    operates on <strong>Port 80 / 4000</strong>. Set ADMS Web Server IP in device
+                    menu to <code>/iclock/cdata</code>.
+                  </>
+                )}
+                {formVendor === 'SUPREMA' && (
+                  <>
+                    💡 <span className="text-purple-500 font-semibold">Suprema Tip:</span> Enter the
+                    terminal IP. The device port is <strong>51211</strong> (or{' '}
+                    <strong>51213</strong> for SSL). Requires the Suprema{' '}
+                    <strong>G-SDK Device Gateway</strong> running (BioStar 2 not required).
+                  </>
+                )}
+                {formVendor === 'ANVIZ' && (
+                  <>
+                    💡 <span className="text-amber-500 font-semibold">Anviz Tip:</span> CrossChex
+                    Push / TCP operates on <strong>Port 5010 / 80</strong>. Set Push Server IP in
+                    device menu to collector endpoint.
+                  </>
+                )}
               </p>
 
               {/* Hardware Model & Ingestion Mode */}
@@ -1037,46 +1100,55 @@ export default function DevicesPage() {
                   </label>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-[11px] text-muted-foreground mb-1 block">
-                      Username <span className="text-rose-500 font-bold">*</span>
-                    </label>
-                    <Input
-                      required
-                      value={formUsername}
-                      onChange={(e) => setFormUsername(e.target.value)}
-                      placeholder="admin"
-                      className="h-8 text-xs bg-background/50"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[11px] text-muted-foreground mb-1 block">
-                      Password / CommKey <span className="text-rose-500 font-bold">*</span>
-                    </label>
-                    <div className="relative">
+                {formVendor === 'SUPREMA' ? (
+                  <p className="text-[11px] text-muted-foreground">
+                    🔒{' '}
+                    <span className="text-purple-500 font-semibold">Not required for Suprema.</span>{' '}
+                    The G-SDK gateway authenticates to the terminal over the encrypted Suprema
+                    protocol — no device username/password needed. Leave blank.
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[11px] text-muted-foreground mb-1 block">
+                        Username <span className="text-rose-500 font-bold">*</span>
+                      </label>
                       <Input
                         required
-                        type={showPassword ? 'text' : 'password'}
-                        value={formPassword}
-                        onChange={(e) => setFormPassword(e.target.value)}
-                        placeholder="uno@6488"
-                        className="h-8 text-xs bg-background/50 pr-8"
+                        value={formUsername}
+                        onChange={(e) => setFormUsername(e.target.value)}
+                        placeholder="admin"
+                        className="h-8 text-xs bg-background/50"
                       />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-2 top-2 text-muted-foreground hover:text-foreground"
-                      >
-                        {showPassword ? (
-                          <EyeOff className="h-3.5 w-3.5" />
-                        ) : (
-                          <Eye className="h-3.5 w-3.5" />
-                        )}
-                      </button>
+                    </div>
+                    <div>
+                      <label className="text-[11px] text-muted-foreground mb-1 block">
+                        Password / CommKey <span className="text-rose-500 font-bold">*</span>
+                      </label>
+                      <div className="relative">
+                        <Input
+                          required
+                          type={showPassword ? 'text' : 'password'}
+                          value={formPassword}
+                          onChange={(e) => setFormPassword(e.target.value)}
+                          placeholder="uno@6488"
+                          className="h-8 text-xs bg-background/50 pr-8"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-2 top-2 text-muted-foreground hover:text-foreground"
+                        >
+                          {showPassword ? (
+                            <EyeOff className="h-3.5 w-3.5" />
+                          ) : (
+                            <Eye className="h-3.5 w-3.5" />
+                          )}
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
               </div>
 
               {/* Probe Test Feedback */}

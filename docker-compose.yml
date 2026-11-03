@@ -13,17 +13,7 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
-      test:
-        [
-          'CMD',
-          'mysqladmin',
-          'ping',
-          '-h',
-          'localhost',
-          '-u',
-          'attendance_user',
-          '-pattendance_pass',
-        ]
+      test: [ 'CMD', 'mysqladmin', 'ping', '-h', 'localhost', '-u', 'attendance_user', '-pattendance_pass' ]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -33,13 +23,13 @@ services:
     image: redis:7.2-alpine
     container_name: attendance-redis
     restart: unless-stopped
-    command: ['redis-server', '--requirepass', 'redis_password']
+    command: [ 'redis-server', '--requirepass', 'redis_password' ]
     ports:
-      - '6379:6379'
+      - '7379:6379'
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ['CMD', 'redis-cli', '-a', 'redis_password', 'ping']
+      test: [ 'CMD', 'redis-cli', '-a', 'redis_password', 'ping' ]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -71,11 +61,7 @@ services:
     volumes:
       - kafka_data:/var/lib/kafka/data
     healthcheck:
-      test:
-        [
-          'CMD-SHELL',
-          '/opt/kafka/bin/kafka-cluster.sh cluster-id --bootstrap-server localhost:9092 || exit 1',
-        ]
+      test: [ 'CMD-SHELL', '/opt/kafka/bin/kafka-cluster.sh cluster-id --bootstrap-server localhost:9092 || exit 1' ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -92,6 +78,27 @@ services:
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
     depends_on:
       - kafka
+
+  # Suprema G-SDK Device Gateway (co-located with the collector).
+  # Opt-in: requires the licensed gateway binary in deploy/suprema-gateway/bin/.
+  # Start with:  docker compose --profile suprema up -d suprema-gateway
+  suprema-gateway:
+    build:
+      context: ./deploy/suprema-gateway
+    container_name: attendance-suprema-gateway
+    restart: unless-stopped
+    profiles: [ 'suprema' ]
+    ports:
+      - '14000:4000' # gRPC for the collector (host 14000 -> container 4000; API already uses host 4000)
+    volumes:
+      - ./deploy/suprema-gateway/cert:/app/cert # ca.crt is generated here on first run
+      - ./deploy/suprema-gateway/logs:/app/logs
+    healthcheck:
+      test: [ 'CMD-SHELL', 'test -f /app/cert/ca.crt || exit 1' ]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
 
 volumes:
   mysql_data:

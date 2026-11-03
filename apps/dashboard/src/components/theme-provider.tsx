@@ -31,7 +31,6 @@ export function ThemeProvider({
 }: ThemeProviderProps) {
   const [theme, setThemeState] = useState<Theme>(defaultTheme);
   const [resolvedTheme, setResolvedTheme] = useState<'dark' | 'light'>('light');
-  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     try {
@@ -42,7 +41,6 @@ export function ThemeProvider({
     } catch {
       // localStorage fallback
     }
-    setMounted(true);
   }, [storageKey]);
 
   useEffect(() => {

@@ -8,6 +8,7 @@ import { HealthModule } from './modules/health/health.module.js';
 import { DevicesModule } from './modules/devices/devices.module.js';
 import { MappingsModule } from './modules/mappings/mappings.module.js';
 import { PunchesModule } from './modules/punches/punches.module.js';
+import { IntegrationsModule } from './modules/integrations/integrations.module.js';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { PunchesModule } from './modules/punches/punches.module.js';
     DevicesModule,
     MappingsModule,
     PunchesModule,
+    IntegrationsModule,
   ],
 })
 export class AppModule {}

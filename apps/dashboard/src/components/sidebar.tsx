@@ -15,7 +15,6 @@ import {
   FileText,
   Settings as SettingsIcon,
   ChevronRight,
-  Shield,
   Layers,
 } from 'lucide-react';
 import { Badge } from './ui/badge';
@@ -155,7 +154,9 @@ export function Sidebar() {
                         <Icon
                           className={cn(
                             'h-4 w-4 shrink-0 transition-colors',
-                            isActive ? 'text-foreground' : 'text-muted-foreground group-hover:text-foreground',
+                            isActive
+                              ? 'text-foreground'
+                              : 'text-muted-foreground group-hover:text-foreground',
                           )}
                         />
                         <span>{item.name}</span>
@@ -167,8 +168,8 @@ export function Sidebar() {
                             item.badgeVariant === 'success'
                               ? 'success'
                               : item.badgeVariant === 'info'
-                              ? 'info'
-                              : 'secondary'
+                                ? 'info'
+                                : 'secondary'
                           }
                           className="text-[10px] px-1.5 py-0 font-semibold"
                         >

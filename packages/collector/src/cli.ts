@@ -7,6 +7,7 @@ import { CollectorService, StandardMockDeviceAdapter } from './index.js';
 import { ZKTecoDeviceAdapter } from '@attendance/adapter-zkteco';
 import { HikvisionDeviceAdapter } from '@attendance/adapter-hikvision';
 import { SupremaDeviceAdapter } from '@attendance/adapter-suprema';
+import { AnvizDeviceAdapter } from '@attendance/adapter-anviz';
 
 async function main() {
   const mode = process.argv[2] || 'run';
@@ -27,10 +28,11 @@ async function main() {
     heartbeatIntervalMs: 15000,
   });
 
-  // Register native ZKTeco, Hikvision, and Suprema adapters
+  // Register native ZKTeco, Hikvision, Suprema, and Anviz adapters
   const zktecoAdapter = new ZKTecoDeviceAdapter(logger, { mockFallback: true });
   const hikvisionAdapter = new HikvisionDeviceAdapter(logger, { mockFallback: true });
   const supremaAdapter = new SupremaDeviceAdapter(logger, { mockFallback: true });
+  const anvizAdapter = new AnvizDeviceAdapter(logger, { mockFallback: true });
   const mockAdapter = new StandardMockDeviceAdapter({
     organizationId: 'ORG-TECHIVE',
     branchId: 'BR-HQ-01',
@@ -43,7 +45,11 @@ async function main() {
   collector.adapterRegistry.register('HIKVISION', hikvisionAdapter);
   collector.adapterRegistry.register('HIKVISION:ISAPI', hikvisionAdapter);
   collector.adapterRegistry.register('SUPREMA', supremaAdapter);
+  collector.adapterRegistry.register('SUPREMA:GSDK', supremaAdapter);
+  // Backward-compat: existing device rows registered with the old protocol still resolve.
   collector.adapterRegistry.register('SUPREMA:BIOSTAR2', supremaAdapter);
+  collector.adapterRegistry.register('ANVIZ', anvizAdapter);
+  collector.adapterRegistry.register('ANVIZ:CROSSCHEX', anvizAdapter);
   collector.adapterRegistry.register('MOCK', mockAdapter);
 
   const sampleDevice: DeviceModel = {

@@ -1,7 +1,15 @@
 'use client';
 
 import React from 'react';
-import { Settings as SettingsIcon, Shield, Database, Radio, Server, Lock, CheckCircle2, Key, Cpu, Sparkles } from 'lucide-react';
+import {
+  Settings as SettingsIcon,
+  Shield,
+  Database,
+  Radio,
+  Server,
+  Lock,
+  CheckCircle2,
+} from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { MetricCard } from '@/components/ui/metric-card';
@@ -13,7 +21,10 @@ export default function SettingsPage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-5">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <Badge variant="outline" className="text-xs font-semibold px-2 py-0.5 bg-muted/60 text-muted-foreground">
+            <Badge
+              variant="outline"
+              className="text-xs font-semibold px-2 py-0.5 bg-muted/60 text-muted-foreground"
+            >
               Configuration & Middleware
             </Badge>
             <Badge variant="outline" className="text-xs font-mono text-muted-foreground">
@@ -25,7 +36,8 @@ export default function SettingsPage() {
             Platform & Cluster Infrastructure Settings
           </h1>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Core middleware credentials, Kafka cluster state, Redlock parameters, and security encryption policies.
+            Core middleware credentials, Kafka cluster state, Redlock parameters, and security
+            encryption policies.
           </p>
         </div>
       </div>
@@ -73,11 +85,16 @@ export default function SettingsPage() {
                 <Database className="h-4 w-4 text-blue-500" />
                 MySQL 8.4 Database
               </CardTitle>
-              <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px] font-mono">
+              <Badge
+                variant="outline"
+                className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px] font-mono"
+              >
                 HEALTHY
               </Badge>
             </div>
-            <CardDescription className="text-xs text-muted-foreground">Persistent authoritative storage</CardDescription>
+            <CardDescription className="text-xs text-muted-foreground">
+              Persistent authoritative storage
+            </CardDescription>
           </CardHeader>
           <CardContent className="p-4 pt-3 space-y-2 text-xs">
             <div className="flex justify-between py-1.5 border-b border-border/40">
@@ -90,7 +107,9 @@ export default function SettingsPage() {
             </div>
             <div className="flex justify-between py-1.5">
               <span className="text-muted-foreground">Active Pool</span>
-              <span className="font-mono text-emerald-600 dark:text-emerald-400 font-semibold">10 Connections (KeepAlive)</span>
+              <span className="font-mono text-emerald-600 dark:text-emerald-400 font-semibold">
+                10 Connections (KeepAlive)
+              </span>
             </div>
           </CardContent>
         </Card>
@@ -103,11 +122,16 @@ export default function SettingsPage() {
                 <Server className="h-4 w-4 text-rose-500" />
                 Redis Cache & Locks
               </CardTitle>
-              <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px] font-mono">
+              <Badge
+                variant="outline"
+                className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px] font-mono"
+              >
                 HEALTHY
               </Badge>
             </div>
-            <CardDescription className="text-xs text-muted-foreground">Distributed locks & device heartbeats</CardDescription>
+            <CardDescription className="text-xs text-muted-foreground">
+              Distributed locks & device heartbeats
+            </CardDescription>
           </CardHeader>
           <CardContent className="p-4 pt-3 space-y-2 text-xs">
             <div className="flex justify-between py-1.5 border-b border-border/40">
@@ -120,7 +144,9 @@ export default function SettingsPage() {
             </div>
             <div className="flex justify-between py-1.5">
               <span className="text-muted-foreground">Cluster Ping</span>
-              <span className="font-mono text-emerald-600 dark:text-emerald-400 font-semibold">1.8ms latency</span>
+              <span className="font-mono text-emerald-600 dark:text-emerald-400 font-semibold">
+                1.8ms latency
+              </span>
             </div>
           </CardContent>
         </Card>
@@ -133,11 +159,16 @@ export default function SettingsPage() {
                 <Radio className="h-4 w-4 text-amber-500" />
                 Kafka Event Backbone
               </CardTitle>
-              <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px] font-mono">
+              <Badge
+                variant="outline"
+                className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px] font-mono"
+              >
                 HEALTHY
               </Badge>
             </div>
-            <CardDescription className="text-xs text-muted-foreground">Durable streaming event backbone</CardDescription>
+            <CardDescription className="text-xs text-muted-foreground">
+              Durable streaming event backbone
+            </CardDescription>
           </CardHeader>
           <CardContent className="p-4 pt-3 space-y-2 text-xs">
             <div className="flex justify-between py-1.5 border-b border-border/40">
@@ -150,7 +181,9 @@ export default function SettingsPage() {
             </div>
             <div className="flex justify-between py-1.5">
               <span className="text-muted-foreground">Producer Acks</span>
-              <span className="font-mono text-emerald-600 dark:text-emerald-400 font-semibold">acks: all (-1)</span>
+              <span className="font-mono text-emerald-600 dark:text-emerald-400 font-semibold">
+                acks: all (-1)
+              </span>
             </div>
           </CardContent>
         </Card>
@@ -173,8 +206,12 @@ export default function SettingsPage() {
             <div>
               <div className="font-semibold text-foreground">Zero Plaintext Storage Guarantee</div>
               <div className="text-muted-foreground text-[11px] mt-0.5 leading-relaxed">
-                All device credentials, communication keys, and webhook shared secrets are resolved via dynamic environment references (e.g.{' '}
-                <code className="font-mono text-primary bg-muted px-1 py-0.5 rounded">env:HIK_PASS</code>) and redacted from all operational logs, JSON audit records, and API responses.
+                All device credentials, communication keys, and webhook shared secrets are resolved
+                via dynamic environment references (e.g.{' '}
+                <code className="font-mono text-primary bg-muted px-1 py-0.5 rounded">
+                  env:HIK_PASS
+                </code>
+                ) and redacted from all operational logs, JSON audit records, and API responses.
               </div>
             </div>
           </div>

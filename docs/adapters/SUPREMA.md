@@ -1,137 +1,107 @@
-# Suprema / BioStar 2 Device Adapter Guide & Validation Manual
+# Suprema G-SDK Device Adapter Guide & Validation Manual
 
 ## 1. Overview
 
-The `@attendance/adapter-suprema` package provides an enterprise adapter for **Suprema biometric and RFID access control systems** interfacing via the centralized **BioStar 2 API** (REST & WebSockets).
+The `@attendance/adapter-suprema` package integrates **Suprema biometric terminals**
+(BioStation 3, FaceStation, BioEntry, X-Station…) using the official **Suprema G-SDK**.
 
----
-
-## 2. Supported Hardware Models (via BioStar 2)
-
-- **Facial Recognition Terminals**:
-  - `FaceStation F2`, `FaceStation 2`, `FaceLite`
-- **Multimodal & RFID Terminals**:
-  - `BioStation 3`, `BioStation 2`, `BioStation A2`, `BioStation L2`
-- **Compact Fingerprint & Card Readers**:
-  - `BioEntry W2`, `BioEntry P2`, `BioEntry Plus`, `BioEntry R2`
-- **Smart Card & QR Readers**:
-  - `X-Station 2` (RFID, QR Code, Mobile Access BLE/NFC)
-- **Centralized Controllers**:
-  - `CoreStation (CS-40)`
-
----
-
-## 3. Communication Architecture
+The adapter is a **gRPC client** of a Suprema **Device Gateway**. The gateway connects to
+the terminal over Suprema's binary protocol. **BioStar 2 is not required.**
 
 ```text
-┌────────────────────────────────────────────────────────┐
-│               Suprema Terminal Fleet                   │
-│   (BioStation 3, FaceStation F2, BioEntry W2, etc.)   │
-└──────────────────────────┬─────────────────────────────┘
-                           │ TCP / RS-485 / OSDP
-                           ▼
-┌────────────────────────────────────────────────────────┐
-│                   BioStar 2 Server                     │
-│               (Port 80 / 443 / 8080)                   │
-└──────────────────────────┬─────────────────────────────┘
-                           │ REST API + WebSockets
-                           │ (bs-session-id token)
-                           ▼
-┌────────────────────────────────────────────────────────┐
-│         @attendance/adapter-suprema Connector          │
-│       (Session Manager + Realtime + Reconciliation)    │
-└────────────────────────────────────────────────────────┘
+┌──────────────────────────┐   gRPC + TLS (:4000)   ┌───────────────────────┐   TCP 51211 / 51213 (SSL)   ┌──────────────────┐
+│  @attendance/collector   │ ─────────────────────▶ │  Suprema Device       │ ─────────────────────────▶  │  BioStation 3     │
+│  (SupremaDeviceAdapter)  │                        │  Gateway (Go binary)  │                             │  (and other BS2   │
+└──────────────────────────┘                        └───────────────────────┘                             │   devices)        │
+                                                                                                            └──────────────────┘
 ```
 
----
+## 2. Supported Hardware (via G-SDK v1.5.0+)
 
-## 4. BioStar 2 REST & WebSocket Endpoints
+BioStation 3 / 3 Max, BioStation 2/A2/L2, FaceStation F2 / 2 / FaceLite,
+BioEntry W2/P2/R2/Plus, X-Station 2, CoreStation — i.e. all BioStar 2 devices.
+BioStation 3 requires firmware ≥ `v1.0.0_20220901`.
 
-| Endpoint                              | Method        | Description                                                         |
-| ------------------------------------- | ------------- | ------------------------------------------------------------------- |
-| `/api/v2/login`                       | `POST`        | Authenticates administrator credentials and yields `bs-session-id`. |
-| `/api/v2/devices`                     | `GET`         | Queries fleet of registered Suprema devices.                        |
-| `/api/v2/devices/:id`                 | `GET`         | Inspects device details (firmware version, IP, status).             |
-| `/api/v2/devices/:id/time`            | `GET` / `PUT` | Queries and synchronizes device Real-Time Clock (RTC).              |
-| `/api/v2/monitoring/event_log/search` | `POST`        | Searches historical attendance punches with pagination.             |
-| `/api/v2/monitoring/events`           | `WebSocket`   | Real-time event stream for immediate punch ingestion.               |
+## 3. gRPC Services Used
 
----
+| Service   | RPC                                          | Purpose                                   |
+| --------- | -------------------------------------------- | ----------------------------------------- |
+| `Connect` | `Connect` / `AddAsyncConnection`             | Connect the gateway to the terminal by IP |
+| `Connect` | `GetDeviceList` / `SubscribeStatus`          | Connection status                         |
+| `Device`  | `GetInfo`                                    | Model, firmware, MAC                       |
+| `Event`   | `GetLog`                                     | Historical attendance logs (paginated)    |
+| `Event`   | `EnableMonitoring` + `SubscribeRealtimeLog`  | Real-time punch stream                     |
+| `Time`    | `Get` / `Set`                                | Read / synchronize the device RTC         |
 
-## 5. Event Codes & Verification Modes
+## 4. Event Mapping
 
-### Verification Type Mapping
+A log is treated as an attendance punch when its `eventCode` is a success event:
+`4096` VERIFY_SUCCESS, `4864` IDENTIFY_SUCCESS, `5632` DUAL_AUTH_SUCCESS.
 
-| BioStar Event Code | Description                                    | Platform Verification Mode |
-| ------------------ | ---------------------------------------------- | -------------------------- |
-| `4098`, `4866`     | Facial Verification Pass / Access Granted      | `FACE` (`15`)              |
-| `4096`, `4864`     | Fingerprint Verification Pass / Access Granted | `FINGERPRINT` (`1`)        |
-| `4097`, `4865`     | RFID Proximity Card Pass / Access Granted      | `CARD` (`4`)               |
-| `4100`, `4867`     | PIN Verification Pass                          | `PIN` (`2`)                |
-| `4101`, `4868`     | Dynamic QR Code Pass                           | `QR` (`30`)                |
-| `4102`             | Mobile Access (BLE / NFC)                      | `MOBILE` (`40`)            |
+- **Verification type** comes from the event `subCode` (via `event_code.json`):
+  face / fingerprint / card / QR / PIN.
+- **Punch type** comes from the `TNAKey`: `1`→IN, `2`→OUT, `3`→BREAK_OUT, `4`→BREAK_IN.
+- **Idempotency key** is `vendorEventId = <deviceID>:<logID>` (the per-device monotonic
+  counter), shared by live delivery and historical backfill.
 
-### T&A Key Mapping
+## 5. Prerequisites
 
-| BioStar TNA Key | Domain Meaning | Platform PunchType |
-| --------------- | -------------- | ------------------ |
-| `1`             | Check-In       | `IN`               |
-| `2`             | Check-Out      | `OUT`              |
-| `3`             | Break-Out      | `BREAK_OUT`        |
-| `4`             | Break-In       | `BREAK_IN`         |
-
----
-
-## 6. How to Test Your Suprema / BioStar 2 Integration
-
-### Step 1: Configure BioStar 2 Credentials in `.env`
-
-Add your BioStar 2 Server details to `.env`:
+1. **Device Gateway** running and reachable (see [`deploy/suprema-gateway/README.md`](../../deploy/suprema-gateway/README.md)).
+2. The licensed **G-SDK proto files** at `vendor/suprema-gsdk/proto/`.
+3. Environment:
 
 ```env
-BIOSTAR_HOST=192.168.1.50          # IP of your BioStar 2 Server
-BIOSTAR_PORT=80                   # BioStar web port (or 443 for HTTPS)
-BIOSTAR_USERNAME=admin             # BioStar administrator username
-BIOSTAR_PASSWORD=YourPassword123  # BioStar administrator password
-BIOSTAR_USE_HTTPS=false            # Set to true if using HTTPS
+SUPREMA_GATEWAY_ADDR=127.0.0.1:4000
+SUPREMA_GATEWAY_CA_CERT=./deploy/suprema-gateway/cert/ca.crt
+SUPREMA_GSDK_PROTO_DIR=./vendor/suprema-gsdk/proto
+SUPREMA_GSDK_EVENT_CODE_FILE=./vendor/suprema-gsdk/event_code.json
+SUPREMA_DEVICE_IP=192.168.1.3     # terminal IP
+SUPREMA_DEVICE_PORT=51211         # 51213 if SSL enabled on the device
+SUPREMA_DEVICE_SSL=false
 ```
 
----
+## 6. How to Test Against a Physical BioStation 3
 
-### Step 2: Test Server Reachability & Session Authentication (CLI)
+### Step 1 — Start the gateway
+
+```powershell
+docker compose --profile suprema up -d suprema-gateway
+```
+
+### Step 2 — Connection probe (identity + firmware)
 
 ```powershell
 pnpm run suprema:test-conn
 ```
 
-> **Expected Output**: Authenticates with BioStar 2 Server via `POST /api/v2/login`, verifies `bs-session-id`, and logs connection latency.
+> Connects the gateway to the terminal, calls `Device.GetInfo`, and logs the model
+> (e.g. `BS3-DB`), firmware, and gateway deviceID.
 
----
-
-### Step 3: Inspect Connected Devices (CLI)
+### Step 3 — Device info
 
 ```powershell
 pnpm run suprema:device-info
 ```
 
-> **Expected Output**: Retrieves connected device models (e.g. BioStation 3, FaceStation F2), serial numbers, and firmware versions.
-
----
-
-### Step 4: Incremental Event Synchronization (CLI)
+### Step 4 — Historical sync (publishes to Kafka)
 
 ```powershell
 pnpm run suprema:sync-once
 ```
 
-> **Expected Output**: Searches historical logs via `/api/v2/monitoring/event_log/search`, converts events into `RawAttendanceEvent`, and publishes records to Kafka `attendance.raw.v1`.
+> Pulls stored logs via `Event.GetLog`, normalizes punches, and publishes to
+> `attendance.raw.v1`.
 
----
-
-### Step 5: Real-time Live Event Streaming (CLI)
+### Step 5 — Real-time streaming
 
 ```powershell
 pnpm run suprema:listen-realtime
 ```
 
-> **Expected Output**: Opens a persistent WebSocket stream to `/api/v2/monitoring/events`. When any employee punches on any registered BioStar device, the event is immediately captured and logged.
+> Opens `EnableMonitoring` + `SubscribeRealtimeLog`. Authenticate on the terminal and the
+> punch appears immediately. Reconnects with backoff and reconciles missed events via
+> `GetLog` after an interruption.
+
+### Step 6 — Verify in Kafka UI
+
+Open <http://localhost:8080> → Topics → `attendance.raw.v1` → Messages.

@@ -39,9 +39,11 @@
     "integration:test-webhook": "pnpm --filter @attendance/integration exec tsx src/cli.ts test-webhook",
     "integration:replay": "pnpm --filter @attendance/integration exec tsx src/cli.ts replay",
     "test:chaos": "pnpm --filter @attendance/qa-engine test:chaos",
-    "docker:up": "docker compose up -d",
-    "docker:down": "docker compose down",
-    "docker:logs": "docker compose logs -f"
+    "docker:up": "docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d",
+    "docker:up:all": "docker compose -f docker-compose.yml -f docker-compose.monitoring.yml --profile suprema up -d",
+    "docker:up:core": "docker compose up -d",
+    "docker:down": "docker compose -f docker-compose.yml -f docker-compose.monitoring.yml --profile suprema down",
+    "docker:logs": "docker compose -f docker-compose.yml -f docker-compose.monitoring.yml logs -f"
   },
   "devDependencies": {
     "@types/node": "^22.13.4",

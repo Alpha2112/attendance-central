@@ -28,7 +28,12 @@ export function MetricCard({
   className,
 }: MetricCardProps) {
   return (
-    <Card className={cn('overflow-hidden rounded-xl border border-border bg-card shadow-xs transition-all hover:border-border/80', className)}>
+    <Card
+      className={cn(
+        'overflow-hidden rounded-xl border border-border bg-card shadow-xs transition-all hover:border-border/80',
+        className,
+      )}
+    >
       <CardContent className="p-5 space-y-3">
         {/* Top row: Title and Delta Pill */}
         <div className="flex items-center justify-between">
@@ -38,9 +43,11 @@ export function MetricCard({
               variant="outline"
               className={cn(
                 'text-[11px] font-semibold px-2 py-0.5 rounded-full border gap-1',
-                deltaType === 'positive' && 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
-                deltaType === 'negative' && 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20',
-                deltaType === 'neutral' && 'bg-muted text-muted-foreground border-border'
+                deltaType === 'positive' &&
+                  'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
+                deltaType === 'negative' &&
+                  'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20',
+                deltaType === 'neutral' && 'bg-muted text-muted-foreground border-border',
               )}
             >
               {deltaType === 'positive' && <TrendingUp className="h-3 w-3" />}
@@ -56,9 +63,7 @@ export function MetricCard({
         </div>
 
         {/* Main Value */}
-        <div className="text-2xl md:text-3xl font-bold tracking-tight text-foreground">
-          {value}
-        </div>
+        <div className="text-2xl md:text-3xl font-bold tracking-tight text-foreground">{value}</div>
 
         {/* Footer / Trend Subtitles */}
         {(deltaLabel || subtext) && (
@@ -66,8 +71,12 @@ export function MetricCard({
             {deltaLabel && (
               <div className="flex items-center gap-1 text-xs font-medium text-foreground">
                 <span>{deltaLabel}</span>
-                {deltaType === 'positive' && <ArrowUpRight className="h-3 w-3 text-emerald-500 shrink-0" />}
-                {deltaType === 'negative' && <ArrowDownRight className="h-3 w-3 text-rose-500 shrink-0" />}
+                {deltaType === 'positive' && (
+                  <ArrowUpRight className="h-3 w-3 text-emerald-500 shrink-0" />
+                )}
+                {deltaType === 'negative' && (
+                  <ArrowDownRight className="h-3 w-3 text-rose-500 shrink-0" />
+                )}
               </div>
             )}
             {subtext && (

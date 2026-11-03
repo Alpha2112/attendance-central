@@ -1,3 +1,4 @@
+export type { PoolConnection } from 'mysql2/promise';
 export * from './pool.js';
 export * from './transaction.js';
 export * from './health.js';

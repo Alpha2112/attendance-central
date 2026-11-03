@@ -4,20 +4,31 @@ import {
   DeviceRepository,
   AttendanceLogRepository,
   DeviceEmployeeMappingRepository,
+  OutboxRepository,
+  runInTransaction,
   type DeviceEntity,
+  type PoolConnection,
 } from '@attendance/database';
 import { AppLogger } from '@attendance/logging';
 import { LOGGER_TOKEN } from '../logging/logging.module.js';
 import { ISAPIClient } from '@attendance/adapter-hikvision';
+import { SupremaDeviceAdapter } from '@attendance/adapter-suprema';
 import { KafkaProducer } from '@attendance/kafka';
 import {
   generateEventFingerprint,
   KAFKA_TOPICS,
   PunchType,
   VerificationType,
+  normalizePunchType,
+  normalizeVerificationType,
+  type RawAttendanceEvent,
+  type DeviceModel,
 } from '@attendance/contracts';
 import { PunchQueryDto, IngestPunchDto } from './dto/punch-query.dto.js';
 import { randomUUID } from 'node:crypto';
+
+/** Outbox event type that external webhook subscriptions subscribe to. */
+const WEBHOOK_EVENT_TYPE = 'attendance.normalized.v1';
 
 export interface PunchLogItem {
   id: number;
@@ -44,8 +55,15 @@ export class PunchesService implements OnModuleInit, OnModuleDestroy {
   private readonly deviceRepo: DeviceRepository;
   private readonly attendanceRepo: AttendanceLogRepository;
   private readonly mappingRepo: DeviceEmployeeMappingRepository;
+  private readonly outboxRepo: OutboxRepository;
   private pollIntervalTimer: NodeJS.Timeout | null = null;
   private lastSyncedSerialMap = new Map<number, number>();
+
+  // Suprema devices stream punches in real time through the G-SDK gateway; we keep
+  // one live subscription per online device and persist events as they arrive.
+  private readonly supremaAdapter: SupremaDeviceAdapter;
+  private readonly supremaSubscriptions = new Map<number, () => void>();
+  private supremaSetupTimer: NodeJS.Timeout | null = null;
 
   constructor(
     @Inject(DatabaseClient) private readonly db: DatabaseClient,
@@ -55,16 +73,270 @@ export class PunchesService implements OnModuleInit, OnModuleDestroy {
     this.deviceRepo = new DeviceRepository(this.db);
     this.attendanceRepo = new AttendanceLogRepository(this.db);
     this.mappingRepo = new DeviceEmployeeMappingRepository(this.db);
+    this.outboxRepo = new OutboxRepository(this.db);
+    this.supremaAdapter = new SupremaDeviceAdapter(this.logger);
+  }
+
+  /**
+   * Transactional outbox enqueue: writes the normalized event into `outbox_events`
+   * in the SAME transaction as the attendance insert, so the real-time webhook
+   * dispatcher (ADR-009) delivers it to each company's endpoint. Idempotent — a
+   * duplicate fingerprint (e.g. re-sync after a purge) is ignored, not an error.
+   */
+  private async enqueueWebhookOutbox(
+    conn: PoolConnection,
+    device: DeviceEntity,
+    fingerprint: string,
+    eventValue: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      await this.outboxRepo.create(
+        {
+          eventId: fingerprint,
+          eventType: WEBHOOK_EVENT_TYPE,
+          aggregateType: 'ATTENDANCE',
+          aggregateId: device.device_code,
+          organizationId: device.organization_id,
+          payload: eventValue,
+        },
+        conn,
+      );
+    } catch (err: unknown) {
+      const errno =
+        typeof err === 'object' && err !== null && 'errno' in err
+          ? (err as { errno: number }).errno
+          : 0;
+      if (errno !== 1062) throw err; // 1062 = duplicate event_id → already enqueued
+    }
   }
 
   public onModuleInit() {
     this.startBackgroundPoller();
+    this.startSupremaRealtime();
   }
 
   public onModuleDestroy() {
     if (this.pollIntervalTimer) {
       clearInterval(this.pollIntervalTimer);
       this.pollIntervalTimer = null;
+    }
+    if (this.supremaSetupTimer) {
+      clearInterval(this.supremaSetupTimer);
+      this.supremaSetupTimer = null;
+    }
+    for (const unsubscribe of this.supremaSubscriptions.values()) {
+      try {
+        unsubscribe();
+      } catch {
+        // best effort
+      }
+    }
+    this.supremaSubscriptions.clear();
+    this.supremaAdapter.close();
+  }
+
+  /**
+   * Keeps a live G-SDK subscription open for every online Suprema device so that
+   * physical punches land in the Live Punch Stream in real time.
+   */
+  private startSupremaRealtime() {
+    const reconcile = () => {
+      void this.ensureSupremaSubscriptions();
+    };
+    reconcile();
+    this.supremaSetupTimer = setInterval(reconcile, 15000);
+  }
+
+  private async ensureSupremaSubscriptions(): Promise<void> {
+    let devices: DeviceEntity[] = [];
+    try {
+      devices = await this.deviceRepo.listByOrg(1);
+    } catch {
+      return;
+    }
+
+    const onlineSuprema = devices.filter(
+      (d) => d.vendor === 'SUPREMA' && (d.status === 'ONLINE' || d.status === 'REGISTERED'),
+    );
+    const onlineIds = new Set(onlineSuprema.map((d) => d.id));
+
+    // Drop subscriptions for devices that are gone or no longer online.
+    for (const [deviceId, unsubscribe] of this.supremaSubscriptions.entries()) {
+      if (!onlineIds.has(deviceId)) {
+        try {
+          unsubscribe();
+        } catch {
+          // best effort
+        }
+        this.supremaSubscriptions.delete(deviceId);
+      }
+    }
+
+    // Subscribe to any online Suprema device we are not already streaming.
+    for (const device of onlineSuprema) {
+      if (this.supremaSubscriptions.has(device.id)) continue;
+      // Reserve the slot immediately so a slow subscribe does not get duplicated.
+      this.supremaSubscriptions.set(device.id, () => {});
+      try {
+        const deviceModel = this.toDeviceModel(device);
+        const unsubscribe = await this.supremaAdapter.subscribe(deviceModel, async (event) => {
+          await this.persistSupremaPunch(device, event);
+        });
+        this.supremaSubscriptions.set(device.id, unsubscribe);
+        this.logger.info(
+          { deviceId: device.id, deviceCode: device.device_code },
+          'Opened Suprema G-SDK real-time subscription for Live Punch Stream',
+        );
+      } catch (err: unknown) {
+        this.supremaSubscriptions.delete(device.id);
+        this.logger.warn(
+          { deviceId: device.id, error: err instanceof Error ? err.message : String(err) },
+          'Failed to open Suprema real-time subscription (will retry)',
+        );
+      }
+    }
+  }
+
+  private toDeviceModel(device: DeviceEntity): DeviceModel {
+    return {
+      id: String(device.id),
+      organizationId: String(device.organization_id),
+      deviceCode: device.device_code,
+      serialNumber: device.serial_number || undefined,
+      name: device.name,
+      vendor: device.vendor,
+      connectionMode: (device.connection_mode as 'PUSH' | 'PULL' | 'HYBRID') || 'HYBRID',
+      status: (device.status as DeviceModel['status']) || 'ONLINE',
+      host: device.host || undefined,
+      port: device.port || undefined,
+      timezone: device.timezone || 'UTC',
+      metadata: (device.metadata as Record<string, unknown>) || {},
+      createdAt: device.created_at ? new Date(device.created_at).toISOString() : new Date().toISOString(),
+      updatedAt: device.updated_at ? new Date(device.updated_at).toISOString() : new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Persists a normalized Suprema real-time punch into raw_punch_logs + attendance_logs
+   * (idempotent) and republishes it on attendance.normalized.v1.
+   */
+  private async persistSupremaPunch(device: DeviceEntity, event: RawAttendanceEvent): Promise<void> {
+    try {
+      const rawVendorUserId = event.vendorUserId;
+      if (!rawVendorUserId || rawVendorUserId === 'UNKNOWN_USER') return;
+
+      const deviceTime = new Date(event.deviceTime);
+      if (isNaN(deviceTime.getTime())) return;
+      const eventDate = deviceTime.toISOString().split('T')[0]!;
+      const punchTimeUtc = deviceTime.toISOString();
+
+      const normalizedPunch = normalizePunchType('SUPREMA', event.vendorPunchType);
+      const punchType = normalizedPunch === PunchType.UNKNOWN ? PunchType.IN : normalizedPunch;
+      const verificationType = normalizeVerificationType('SUPREMA', event.vendorVerificationType);
+
+      const mapping = await this.mappingRepo.findMapping(device.id, rawVendorUserId);
+      const externalEmployeeId = mapping
+        ? mapping.external_employee_id
+        : `EMP-${rawVendorUserId.padStart(4, '0')}`;
+
+      const fingerprint = generateEventFingerprint({
+        organizationId: 'ORG-TECHIVE',
+        employeeId: externalEmployeeId,
+        deviceId: device.device_code,
+        punchTimeUtc,
+        punchType,
+      });
+
+      const rawLogRes = await this.db.query<any>(
+        `INSERT INTO raw_punch_logs (
+          event_date, organization_id, device_id, vendor, vendor_event_id,
+          vendor_user_id, device_time, received_at, raw_payload, payload_hash, normalization_status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP(6), ?, ?, 'PROCESSED')`,
+        [
+          eventDate,
+          device.organization_id,
+          device.id,
+          device.vendor,
+          event.vendorEventId || randomUUID(),
+          rawVendorUserId,
+          deviceTime,
+          JSON.stringify(event.rawPayload ?? {}),
+          fingerprint,
+        ],
+      );
+      const rawLogId = rawLogRes.insertId || 1;
+
+      const eventValue: Record<string, unknown> = {
+        eventId: randomUUID(),
+        schemaVersion: 1,
+        organizationId: 'ORG-TECHIVE',
+        branchId: device.branch_id ?? null,
+        employeeId: externalEmployeeId,
+        deviceId: device.device_code,
+        vendor: device.vendor,
+        punchTime: deviceTime.toISOString(),
+        punchTimeUtc,
+        receivedAt: new Date().toISOString(),
+        punchType,
+        verificationType,
+        source: event.source || 'REALTIME',
+        eventFingerprint: fingerprint,
+        metadata: { realtime: true },
+      };
+
+      // Persist attendance + enqueue the outbox webhook event atomically.
+      const result = await runInTransaction(this.db, async (conn) => {
+        const r = await this.attendanceRepo.insertIdempotent(
+          {
+            eventDate,
+            organizationId: device.organization_id,
+            employeeId: externalEmployeeId,
+            deviceId: device.id,
+            vendor: device.vendor,
+            rawLogId,
+            punchTime: deviceTime,
+            punchTimeUtc: deviceTime,
+            receivedAt: new Date(),
+            punchType,
+            verificationType,
+            source: event.source || 'REALTIME',
+            vendorEventId: event.vendorEventId || '',
+            eventFingerprint: fingerprint,
+          },
+          conn,
+        );
+        if (r.inserted) {
+          await this.enqueueWebhookOutbox(conn, device, fingerprint, eventValue);
+        }
+        return r;
+      });
+
+      if (result.inserted) {
+        try {
+          await this.kafkaProducer.publish({
+            topic: KAFKA_TOPICS.ATTENDANCE_NORMALIZED,
+            key: device.device_code,
+            value: eventValue,
+          });
+        } catch {
+          // Kafka publish is best-effort; the punch is already persisted.
+        }
+        this.logger.info(
+          {
+            deviceCode: device.device_code,
+            employeeId: externalEmployeeId,
+            punchType,
+            verificationType,
+            punchTimeUtc,
+          },
+          'Live Suprema punch persisted',
+        );
+      }
+    } catch (err: unknown) {
+      this.logger.warn(
+        { deviceId: device.id, error: err instanceof Error ? err.message : String(err) },
+        'Failed to persist Suprema real-time punch',
+      );
     }
   }
 
@@ -358,22 +630,54 @@ export class PunchesService implements OnModuleInit, OnModuleDestroy {
 
       const rawLogId = rawLogRes.insertId || 1;
 
-      // Idempotently insert into attendance_logs
-      const result = await this.attendanceRepo.insertIdempotent({
-        eventDate,
-        organizationId: device.organization_id,
+      const eventValue: Record<string, unknown> = {
+        eventId: randomUUID(),
+        schemaVersion: 1,
+        organizationId: 'ORG-TECHIVE',
+        branchId: device.branch_id ?? null,
         employeeId: externalEmployeeId,
-        deviceId: device.id,
+        deviceId: device.device_code,
         vendor: device.vendor,
-        rawLogId,
-        punchTime: deviceTime,
-        punchTimeUtc: deviceTime,
-        receivedAt: new Date(),
+        punchTime: deviceTime.toISOString(),
+        punchTimeUtc,
+        receivedAt: new Date().toISOString(),
         punchType,
         verificationType,
         source: 'PULL',
-        vendorEventId: String(info.serialNo || ''),
         eventFingerprint: fingerprint,
+        metadata: {
+          hardwareSerial: device.serial_number,
+          doorNo: info.doorNo,
+          cardNo: info.cardNo,
+          userName: info.name,
+        },
+      };
+
+      // Idempotently insert into attendance_logs + enqueue the outbox event atomically.
+      const result = await runInTransaction(this.db, async (conn) => {
+        const r = await this.attendanceRepo.insertIdempotent(
+          {
+            eventDate,
+            organizationId: device.organization_id,
+            employeeId: externalEmployeeId,
+            deviceId: device.id,
+            vendor: device.vendor,
+            rawLogId,
+            punchTime: deviceTime,
+            punchTimeUtc: deviceTime,
+            receivedAt: new Date(),
+            punchType,
+            verificationType,
+            source: 'PULL',
+            vendorEventId: String(info.serialNo || ''),
+            eventFingerprint: fingerprint,
+          },
+          conn,
+        );
+        if (r.inserted) {
+          await this.enqueueWebhookOutbox(conn, device, fingerprint, eventValue);
+        }
+        return r;
       });
 
       if (result.inserted) {
@@ -384,27 +688,7 @@ export class PunchesService implements OnModuleInit, OnModuleDestroy {
           await this.kafkaProducer.publish({
             topic: KAFKA_TOPICS.ATTENDANCE_NORMALIZED,
             key: device.device_code,
-            value: {
-              eventId: randomUUID(),
-              schemaVersion: 1,
-              organizationId: 'ORG-TECHIVE',
-              employeeId: externalEmployeeId,
-              deviceId: device.device_code,
-              vendor: device.vendor,
-              punchTime: deviceTime.toISOString(),
-              punchTimeUtc,
-              receivedAt: new Date().toISOString(),
-              punchType,
-              verificationType,
-              source: 'PULL',
-              eventFingerprint: fingerprint,
-              metadata: {
-                hardwareSerial: device.serial_number,
-                doorNo: info.doorNo,
-                cardNo: info.cardNo,
-                userName: info.name,
-              },
-            },
+            value: eventValue,
           });
         } catch {
           // Kafka emission fallback
@@ -603,46 +887,61 @@ export class PunchesService implements OnModuleInit, OnModuleDestroy {
 
     const rawLogId = rawLogRes.insertId || 1;
 
-    await this.attendanceRepo.insertIdempotent({
-      eventDate,
-      organizationId: device.organization_id,
+    const punchTime = acsEvent.time ? new Date(acsEvent.time) : now;
+    const eventValue: Record<string, unknown> = {
+      eventId: randomUUID(),
+      schemaVersion: 1,
+      organizationId: 'ORG-TECHIVE',
+      branchId: device.branch_id ?? null,
       employeeId: externalEmployeeId,
-      deviceId: device.id,
+      deviceId: device.device_code,
       vendor: device.vendor,
-      rawLogId,
-      punchTime: acsEvent.time ? new Date(acsEvent.time) : now,
-      punchTimeUtc: acsEvent.time ? new Date(acsEvent.time) : now,
-      receivedAt: now,
+      punchTime: punchTimeUtc,
+      punchTimeUtc,
+      receivedAt: now.toISOString(),
       punchType,
       verificationType,
       source: 'PUSH',
-      vendorEventId: String(acsEvent.serialNo || ''),
       eventFingerprint: fingerprint,
-    });
+      metadata: acsEvent,
+    };
 
-    try {
-      await this.kafkaProducer.publish({
-        topic: KAFKA_TOPICS.ATTENDANCE_NORMALIZED,
-        key: device.device_code,
-        value: {
-          eventId: randomUUID(),
-          schemaVersion: 1,
-          organizationId: 'ORG-TECHIVE',
+    const result = await runInTransaction(this.db, async (conn) => {
+      const r = await this.attendanceRepo.insertIdempotent(
+        {
+          eventDate,
+          organizationId: device.organization_id,
           employeeId: externalEmployeeId,
-          deviceId: device.device_code,
+          deviceId: device.id,
           vendor: device.vendor,
-          punchTime: punchTimeUtc,
-          punchTimeUtc,
-          receivedAt: now.toISOString(),
+          rawLogId,
+          punchTime,
+          punchTimeUtc: punchTime,
+          receivedAt: now,
           punchType,
           verificationType,
           source: 'PUSH',
+          vendorEventId: String(acsEvent.serialNo || ''),
           eventFingerprint: fingerprint,
-          metadata: acsEvent,
         },
-      });
-    } catch {
-      // Kafka fallback
+        conn,
+      );
+      if (r.inserted) {
+        await this.enqueueWebhookOutbox(conn, device, fingerprint, eventValue);
+      }
+      return r;
+    });
+
+    if (result.inserted) {
+      try {
+        await this.kafkaProducer.publish({
+          topic: KAFKA_TOPICS.ATTENDANCE_NORMALIZED,
+          key: device.device_code,
+          value: eventValue,
+        });
+      } catch {
+        // Kafka fallback
+      }
     }
 
     return { received: true, count: 1 };

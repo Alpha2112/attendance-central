@@ -19,7 +19,6 @@ import {
   Copy,
   ToggleLeft,
   ToggleRight,
-  Filter,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -168,9 +167,7 @@ export default function MappingsPage() {
               vendorUserId: m.vendor_user_id,
               cardNo: meta.cardNo || undefined,
               status: (m.status as 'ACTIVE' | 'INACTIVE') || 'ACTIVE',
-              syncedAt: m.updated_at
-                ? new Date(m.updated_at).toLocaleDateString()
-                : 'Recent',
+              syncedAt: m.updated_at ? new Date(m.updated_at).toLocaleDateString() : 'Recent',
             };
           });
           setMappings(mapped);
@@ -279,7 +276,8 @@ export default function MappingsPage() {
     }
 
     try {
-      const url = isEditing && editingMappingId ? `/api/mappings/${editingMappingId}` : '/api/mappings';
+      const url =
+        isEditing && editingMappingId ? `/api/mappings/${editingMappingId}` : '/api/mappings';
       const method = isEditing ? 'PATCH' : 'POST';
 
       const res = await fetch(url, {
@@ -382,7 +380,10 @@ export default function MappingsPage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-5">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <Badge variant="outline" className="text-xs font-semibold px-2 py-0.5 bg-muted/60 text-muted-foreground">
+            <Badge
+              variant="outline"
+              className="text-xs font-semibold px-2 py-0.5 bg-muted/60 text-muted-foreground"
+            >
               Identity Resolution
             </Badge>
             <Badge variant="outline" className="text-xs font-mono text-muted-foreground">
@@ -394,7 +395,8 @@ export default function MappingsPage() {
             Biometric Identity Mappings
           </h1>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Resolves canonical HRMS employee external IDs against hardware terminal biometric IDs with one-to-one precision per physical device.
+            Resolves canonical HRMS employee external IDs against hardware terminal biometric IDs
+            with one-to-one precision per physical device.
           </p>
         </div>
 
@@ -410,11 +412,7 @@ export default function MappingsPage() {
             {isRefreshing ? 'Refreshing...' : 'Refresh Mappings'}
           </Button>
 
-          <Button
-            size="sm"
-            className="font-semibold shadow-xs"
-            onClick={handleOpenCreate}
-          >
+          <Button size="sm" className="font-semibold shadow-xs" onClick={handleOpenCreate}>
             <Plus className="h-4 w-4 mr-1.5" />
             Map Employee
           </Button>
@@ -470,7 +468,7 @@ export default function MappingsPage() {
           <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
             <div className="flex items-center rounded-lg border border-border bg-muted/40 p-1 text-xs">
               <span className="px-2 text-muted-foreground font-semibold">Vendor:</span>
-              {['ALL', 'HIKVISION', 'ZKTECO', 'SUPREMA'].map((v) => (
+              {['ALL', 'HIKVISION', 'ZKTECO', 'SUPREMA', 'ANVIZ'].map((v) => (
                 <button
                   key={v}
                   onClick={() => setSelectedVendor(v)}
@@ -533,8 +531,8 @@ export default function MappingsPage() {
               <div>
                 <h3 className="text-sm font-semibold text-foreground">No Mappings Found</h3>
                 <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
-                  Click &ldquo;Map Employee&rdquo; to bind an HRMS employee ID to a physical biometric
-                  terminal user ID.
+                  Click &ldquo;Map Employee&rdquo; to bind an HRMS employee ID to a physical
+                  biometric terminal user ID.
                 </p>
               </div>
               <Button size="sm" className="h-8 text-xs gap-1.5" onClick={handleOpenCreate}>
@@ -562,7 +560,9 @@ export default function MappingsPage() {
                   >
                     <TableCell className="py-2.5">
                       <div>
-                        <div className="text-xs font-semibold text-foreground">{m.employeeName}</div>
+                        <div className="text-xs font-semibold text-foreground">
+                          {m.employeeName}
+                        </div>
                         <div className="text-[10px] text-muted-foreground">{m.department}</div>
                       </div>
                     </TableCell>
@@ -763,7 +763,8 @@ export default function MappingsPage() {
               {/* Hardware Biometric Terminal Target */}
               <div className="space-y-3 p-3 rounded-lg bg-muted/30 border border-border/50">
                 <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
-                  <Cpu className="h-3.5 w-3.5 text-primary" /> Target Terminal & Hardware Credentials
+                  <Cpu className="h-3.5 w-3.5 text-primary" /> Target Terminal & Hardware
+                  Credentials
                 </div>
 
                 <div>
@@ -817,7 +818,9 @@ export default function MappingsPage() {
                 <div className="text-[10px] text-muted-foreground bg-background/50 p-2 rounded-md border border-border/50 font-mono flex items-center gap-1.5">
                   <span className="text-primary font-bold">⚡ 1:1 Identity Binding:</span>
                   <span>
-                    External ID <b className="text-foreground">{formExternalId || 'EMP-...'}</b> ↔ Biometric Vendor ID <b className="text-foreground">{formVendorUserId || '...'}</b>
+                    External ID <b className="text-foreground">{formExternalId || 'EMP-...'}</b> ↔
+                    Biometric Vendor ID{' '}
+                    <b className="text-foreground">{formVendorUserId || '...'}</b>
                   </span>
                 </div>
 

@@ -19,8 +19,6 @@ import {
   AlertTriangle,
   Radio,
   Fingerprint as FingerprintIcon,
-  ChevronLeft,
-  ChevronRight,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -72,41 +70,49 @@ export default function PunchesPage() {
   const [selectedPunch, setSelectedPunch] = useState<PunchRecord | null>(null);
   const [copiedFingerprint, setCopiedFingerprint] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [bannerFeedback, setBannerFeedback] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [bannerFeedback, setBannerFeedback] = useState<{
+    text: string;
+    type: 'success' | 'error' | 'info';
+  } | null>(null);
   const [isPurgeModalOpen, setIsPurgeModalOpen] = useState(false);
   const [isPurging, setIsPurging] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
   // Pagination state
-  const [cursorTime, setCursorTime] = useState<string | undefined>(undefined);
-  const [cursorId, setCursorId] = useState<number | undefined>(undefined);
-  const [nextCursor, setNextCursor] = useState<{ punchTimeUtc: string; id: number } | undefined>(undefined);
+  const [_cursorTime, setCursorTime] = useState<string | undefined>(undefined);
+  const [_cursorId, setCursorId] = useState<number | undefined>(undefined);
+  const [_nextCursor, setNextCursor] = useState<{ punchTimeUtc: string; id: number } | undefined>(
+    undefined,
+  );
 
-  const fetchPunches = useCallback(async (cTime?: string, cId?: number) => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      if (searchTerm) params.set('search', searchTerm);
-      if (cTime && cId) {
-        params.set('cursorTime', cTime);
-        params.set('cursorId', String(cId));
-      }
-      params.set('limit', '30');
-
-      const res = await fetch(`/api/punches?${params.toString()}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.items) {
-          setPunches(data.items);
-          setNextCursor(data.nextCursor);
+  const fetchPunches = useCallback(
+    async (cTime?: string, cId?: number) => {
+      setLoading(true);
+      try {
+        const params = new URLSearchParams();
+        if (searchTerm) params.set('search', searchTerm);
+        if (cTime && cId) {
+          params.set('cursorTime', cTime);
+          params.set('cursorId', String(cId));
         }
+        params.set('limit', '30');
+
+        const res = await fetch(`/api/punches?${params.toString()}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.items) {
+            setPunches(data.items);
+            setNextCursor(data.nextCursor);
+          }
+        }
+      } catch {
+        // transient fetch fallback
+      } finally {
+        setLoading(false);
       }
-    } catch {
-      // transient fetch fallback
-    } finally {
-      setLoading(false);
-    }
-  }, [searchTerm]);
+    },
+    [searchTerm],
+  );
 
   useEffect(() => {
     fetchPunches();
@@ -134,7 +140,7 @@ export default function PunchesPage() {
       if (data.success) {
         showBanner(
           `⚡ Synced physical terminal (${data.deviceCode || 'Hikvision'}): ${data.newCount} new punch(es) ingested, ${data.duplicateCount} duplicates rejected.`,
-          'success'
+          'success',
         );
         fetchPunches();
       } else {
@@ -155,7 +161,10 @@ export default function PunchesPage() {
       if (res.ok && data.success) {
         setPunches([]);
         setIsPurgeModalOpen(false);
-        showBanner('🗑 All punch logs purged. Terminal checkpoint reset so you can test fresh punches!', 'info');
+        showBanner(
+          '🗑 All punch logs purged. Terminal checkpoint reset so you can test fresh punches!',
+          'info',
+        );
         fetchPunches();
       } else {
         showBanner(`❌ Failed to purge logs: ${data.message || 'Unknown error'}`, 'error');
@@ -189,7 +198,10 @@ export default function PunchesPage() {
       const res = await fetch(`/api/punches/${p.id}?action=reemit`, { method: 'POST' });
       const data = await res.json();
       if (res.ok && data.success) {
-        showBanner(`⚡ Punch #${p.id} re-emitted to Kafka topic [attendance.normalized.v1]!`, 'success');
+        showBanner(
+          `⚡ Punch #${p.id} re-emitted to Kafka topic [attendance.normalized.v1]!`,
+          'success',
+        );
       } else {
         showBanner(`❌ Failed to re-emit punch #${p.id}.`, 'error');
       }
@@ -270,12 +282,16 @@ export default function PunchesPage() {
                 <h1 className="text-2xl font-bold tracking-tight text-foreground">
                   Historical Attendance Punch Logs
                 </h1>
-                <Badge variant="outline" className="text-xs bg-muted/40 font-mono text-muted-foreground">
+                <Badge
+                  variant="outline"
+                  className="text-xs bg-muted/40 font-mono text-muted-foreground"
+                >
                   Partition: p{new Date().toISOString().slice(0, 7).replace('-', '')}
                 </Badge>
               </div>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Authoritative partitioned MySQL records with immutable SHA-256 idempotency fingerprints.
+                Authoritative partitioned MySQL records with immutable SHA-256 idempotency
+                fingerprints.
               </p>
             </div>
           </div>
@@ -335,8 +351,8 @@ export default function PunchesPage() {
             bannerFeedback.type === 'error'
               ? 'bg-rose-500/10 border-rose-500/30 text-rose-300'
               : bannerFeedback.type === 'info'
-              ? 'bg-purple-500/10 border-purple-500/30 text-purple-300'
-              : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                ? 'bg-purple-500/10 border-purple-500/30 text-purple-300'
+                : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
           }`}
         >
           <div className="flex items-center gap-2">
@@ -376,7 +392,7 @@ export default function PunchesPage() {
           {/* Vendor Filter */}
           <div className="flex items-center rounded-lg border border-border/60 bg-card/40 p-1 text-xs">
             <span className="px-2 text-muted-foreground font-semibold">Vendor:</span>
-            {['ALL', 'HIKVISION', 'ZKTECO', 'SUPREMA'].map((v) => (
+            {['ALL', 'HIKVISION', 'ZKTECO', 'SUPREMA', 'ANVIZ'].map((v) => (
               <button
                 key={v}
                 onClick={() => setSelectedVendor(v)}
@@ -416,9 +432,12 @@ export default function PunchesPage() {
         <CardHeader className="pb-3 border-b border-border/40">
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="text-base font-semibold">Normalized Attendance Records</CardTitle>
+              <CardTitle className="text-base font-semibold">
+                Normalized Attendance Records
+              </CardTitle>
               <CardDescription className="text-xs">
-                Keyset-paginated query over monthly partitioned table <code className="font-mono text-foreground">attendance_logs</code>.
+                Keyset-paginated query over monthly partitioned table{' '}
+                <code className="font-mono text-foreground">attendance_logs</code>.
               </CardDescription>
             </div>
             <Badge variant="outline" className="font-mono text-xs bg-muted/40">
@@ -454,14 +473,20 @@ export default function PunchesPage() {
                       <FingerprintIcon className="h-10 w-10 mx-auto text-muted-foreground/40" />
                       <div className="font-semibold text-foreground">No Punch Logs in Database</div>
                       <div className="text-xs text-muted-foreground">
-                        Ready for testing! Present your face, card, or fingerprint on your physical Hikvision device (<code className="text-foreground font-mono">192.168.100.186</code>), then click <strong>Sync Real Terminal</strong> or watch the Live Stream.
+                        Ready for testing! Present your face, card, or fingerprint on your physical
+                        Hikvision device (
+                        <code className="text-foreground font-mono">192.168.100.186</code>), then
+                        click <strong>Sync Real Terminal</strong> or watch the Live Stream.
                       </div>
                     </div>
                   </TableCell>
                 </TableRow>
               ) : (
                 filteredPunches.map((p) => (
-                  <TableRow key={`${p.id}-${p.fingerprint}`} className="border-border/30 hover:bg-muted/20 text-sm">
+                  <TableRow
+                    key={`${p.id}-${p.fingerprint}`}
+                    className="border-border/30 hover:bg-muted/20 text-sm"
+                  >
                     <TableCell>
                       <div className="font-medium text-foreground">{p.employeeName}</div>
                       <div className="text-xs text-muted-foreground font-mono">
@@ -476,15 +501,19 @@ export default function PunchesPage() {
                             p.vendor === 'HIKVISION'
                               ? 'bg-blue-500/10 text-blue-400 border-blue-500/30 text-[10px]'
                               : p.vendor === 'ZKTECO'
-                              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 text-[10px]'
-                              : 'bg-amber-500/10 text-amber-400 border-amber-500/30 text-[10px]'
+                                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 text-[10px]'
+                                : 'bg-amber-500/10 text-amber-400 border-amber-500/30 text-[10px]'
                           }
                         >
                           {p.vendor}
                         </Badge>
                         <div>
-                          <div className="text-xs font-semibold text-foreground">{p.deviceCode}</div>
-                          <div className="text-[11px] text-muted-foreground truncate max-w-[150px]">{p.deviceName}</div>
+                          <div className="text-xs font-semibold text-foreground">
+                            {p.deviceCode}
+                          </div>
+                          <div className="text-[11px] text-muted-foreground truncate max-w-[150px]">
+                            {p.deviceName}
+                          </div>
                         </div>
                       </div>
                     </TableCell>
@@ -495,10 +524,15 @@ export default function PunchesPage() {
                     </TableCell>
                     <TableCell>
                       <div className="text-xs text-foreground font-medium">{p.punchTime}</div>
-                      <div className="text-[10px] text-muted-foreground font-mono">{p.punchTimeUtc}</div>
+                      <div className="text-[10px] text-muted-foreground font-mono">
+                        {p.punchTimeUtc}
+                      </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline" className="text-[10px] font-mono bg-muted/30 text-muted-foreground">
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] font-mono bg-muted/30 text-muted-foreground"
+                      >
                         {p.source}
                       </Badge>
                     </TableCell>
@@ -521,7 +555,10 @@ export default function PunchesPage() {
                             <span className="sr-only">Open actions</span>
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-56 bg-card/95 backdrop-blur border-border/80 shadow-xl">
+                        <DropdownMenuContent
+                          align="end"
+                          className="w-56 bg-card/95 backdrop-blur border-border/80 shadow-xl"
+                        >
                           <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">
                             Punch Record #{p.id}
                           </DropdownMenuLabel>
@@ -546,7 +583,10 @@ export default function PunchesPage() {
                           </DropdownMenuItem>
 
                           {/* View Identity Mapping */}
-                          <DropdownMenuItem asChild className="text-xs cursor-pointer focus:bg-muted">
+                          <DropdownMenuItem
+                            asChild
+                            className="text-xs cursor-pointer focus:bg-muted"
+                          >
                             <Link href={`/mappings`}>
                               <ExternalLink className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
                               View Identity Mapping
@@ -598,7 +638,8 @@ export default function PunchesPage() {
                     Attendance Audit Record Inspector
                   </h3>
                   <p className="text-xs text-muted-foreground">
-                    Row ID: <span className="font-mono text-foreground">{selectedPunch.id}</span> • Partition:{' '}
+                    Row ID: <span className="font-mono text-foreground">{selectedPunch.id}</span> •
+                    Partition:{' '}
                     <span className="font-mono text-foreground">{selectedPunch.eventDate}</span>
                   </p>
                 </div>
@@ -616,18 +657,26 @@ export default function PunchesPage() {
             <div className="grid grid-cols-2 gap-4 text-xs">
               <div className="p-3.5 rounded-lg bg-muted/20 border border-border/40 space-y-1">
                 <div className="text-muted-foreground font-semibold">RESOLVED IDENTITY</div>
-                <div className="font-bold text-foreground text-sm">{selectedPunch.employeeName}</div>
-                <div className="text-muted-foreground font-mono">External ID: {selectedPunch.employeeId}</div>
+                <div className="font-bold text-foreground text-sm">
+                  {selectedPunch.employeeName}
+                </div>
+                <div className="text-muted-foreground font-mono">
+                  External ID: {selectedPunch.employeeId}
+                </div>
                 <div className="text-muted-foreground">Department: {selectedPunch.department}</div>
                 {selectedPunch.cardNo && (
-                  <div className="text-muted-foreground font-mono">Badge Card: {selectedPunch.cardNo}</div>
+                  <div className="text-muted-foreground font-mono">
+                    Badge Card: {selectedPunch.cardNo}
+                  </div>
                 )}
               </div>
 
               <div className="p-3.5 rounded-lg bg-muted/20 border border-border/40 space-y-1">
                 <div className="text-muted-foreground font-semibold">HARDWARE ORIGIN</div>
                 <div className="font-bold text-foreground text-sm">{selectedPunch.deviceName}</div>
-                <div className="text-muted-foreground font-mono">Device Code: {selectedPunch.deviceCode}</div>
+                <div className="text-muted-foreground font-mono">
+                  Device Code: {selectedPunch.deviceCode}
+                </div>
                 <div className="text-muted-foreground">Vendor: {selectedPunch.vendor} (ISAPI)</div>
                 <div className="text-muted-foreground">Ingestion Mode: {selectedPunch.source}</div>
               </div>
@@ -636,7 +685,9 @@ export default function PunchesPage() {
             {/* SHA-256 Hash Display */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between text-xs">
-                <span className="font-semibold text-muted-foreground">SHA-256 IDEMPOTENCY FINGERPRINT</span>
+                <span className="font-semibold text-muted-foreground">
+                  SHA-256 IDEMPOTENCY FINGERPRINT
+                </span>
                 <button
                   onClick={() => handleCopyFingerprint(selectedPunch.fingerprint)}
                   className="text-primary hover:underline flex items-center gap-1 text-[11px]"
@@ -670,7 +721,7 @@ export default function PunchesPage() {
                     event_fingerprint: selectedPunch.fingerprint,
                   },
                   null,
-                  2
+                  2,
                 )}
               </pre>
             </div>
@@ -709,9 +760,14 @@ export default function PunchesPage() {
               <h3 className="font-bold text-foreground text-base">Clear All Punch Logs</h3>
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              This will purge all stored punch records from partitioned MySQL tables (<code className="text-foreground">attendance_logs</code> and <code className="text-foreground">raw_punch_logs</code>) and reset the terminal checkpoint.
-              <br /><br />
-              This gives you a completely clean slate to test fresh punches on your real Hikvision device.
+              This will purge all stored punch records from partitioned MySQL tables (
+              <code className="text-foreground">attendance_logs</code> and{' '}
+              <code className="text-foreground">raw_punch_logs</code>) and reset the terminal
+              checkpoint.
+              <br />
+              <br />
+              This gives you a completely clean slate to test fresh punches on your real Hikvision
+              device.
             </p>
             <div className="flex items-center justify-end gap-2 pt-3 border-t border-border/40">
               <Button
