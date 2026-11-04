@@ -9,3 +9,4 @@ export * from './outbox.entity.js';
 export * from './integration.entity.js';
 export * from './api-client.entity.js';
 export * from './audit.entity.js';
+export * from './tenant.entity.js';

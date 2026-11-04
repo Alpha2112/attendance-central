@@ -34,6 +34,54 @@ export class OrganizationRepository {
   }
 
   public async list(): Promise<OrganizationEntity[]> {
-    return this.client.query<OrganizationEntity[]>('SELECT * FROM organizations ORDER BY id ASC');
+    return this.client.query<OrganizationEntity[]>('SELECT * FROM organizations ORDER BY name ASC');
+  }
+
+  public async listByTenant(tenantId: number): Promise<OrganizationEntity[]> {
+    return this.client.query<OrganizationEntity[]>(
+      'SELECT * FROM organizations WHERE tenant_id = ? ORDER BY name ASC',
+      [tenantId],
+    );
+  }
+
+  public async update(
+    id: number,
+    dto: {
+      tenantId?: number | null;
+      code?: string;
+      name?: string;
+      timezone?: string;
+      status?: string;
+    },
+  ): Promise<void> {
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    if (dto.tenantId !== undefined) {
+      sets.push('tenant_id = ?');
+      params.push(dto.tenantId || null);
+    }
+    if (dto.code !== undefined) {
+      sets.push('code = ?');
+      params.push(dto.code);
+    }
+    if (dto.name !== undefined) {
+      sets.push('name = ?');
+      params.push(dto.name);
+    }
+    if (dto.timezone !== undefined) {
+      sets.push('timezone = ?');
+      params.push(dto.timezone);
+    }
+    if (dto.status !== undefined) {
+      sets.push('status = ?');
+      params.push(dto.status);
+    }
+    if (sets.length === 0) return;
+    params.push(id);
+    await this.client.query(`UPDATE organizations SET ${sets.join(', ')} WHERE id = ?`, params);
+  }
+
+  public async delete(id: number): Promise<void> {
+    await this.client.query('DELETE FROM organizations WHERE id = ?', [id]);
   }
 }

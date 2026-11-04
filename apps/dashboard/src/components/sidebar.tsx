@@ -16,6 +16,7 @@ import {
   Settings as SettingsIcon,
   ChevronRight,
   Layers,
+  Building2,
 } from 'lucide-react';
 import { Badge } from './ui/badge';
 import { cn } from '@/lib/utils';
@@ -76,6 +77,11 @@ const navSections: { title: string; items: NavItem[] }[] = [
   {
     title: 'Outbound & Telemetry',
     items: [
+      {
+        name: 'Organizations & Tenants',
+        href: '/organizations',
+        icon: Building2,
+      },
       {
         name: 'Integrations & Outbox',
         href: '/integrations',

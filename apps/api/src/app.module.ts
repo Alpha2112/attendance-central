@@ -9,6 +9,7 @@ import { DevicesModule } from './modules/devices/devices.module.js';
 import { MappingsModule } from './modules/mappings/mappings.module.js';
 import { PunchesModule } from './modules/punches/punches.module.js';
 import { IntegrationsModule } from './modules/integrations/integrations.module.js';
+import { RegistryModule } from './modules/registry/registry.module.js';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { IntegrationsModule } from './modules/integrations/integrations.module.j
     MappingsModule,
     PunchesModule,
     IntegrationsModule,
+    RegistryModule,
   ],
 })
 export class AppModule {}

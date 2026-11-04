@@ -189,6 +189,25 @@ export default function IntegrationsPage() {
   const [revealKey, setRevealKey] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
+  // Registered tenants/organizations for the webhook dropdowns.
+  const [tenants, setTenants] = useState<Array<{ id: number; code: string; name: string }>>([]);
+  const [orgs, setOrgs] = useState<
+    Array<{ id: number; code: string; name: string; tenantId: number | null }>
+  >([]);
+
+  const loadRegistry = useCallback(async () => {
+    try {
+      const [tRes, oRes] = await Promise.all([
+        fetch('/api/tenants', { cache: 'no-store' }),
+        fetch('/api/organizations', { cache: 'no-store' }),
+      ]);
+      if (tRes.ok) setTenants(await tRes.json());
+      if (oRes.ok) setOrgs(await oRes.json());
+    } catch {
+      /* keep previous */
+    }
+  }, []);
+
   const fetchAll = useCallback(async () => {
     setRefreshing(true);
     try {
@@ -200,13 +219,14 @@ export default function IntegrationsPage() {
       const st = (await statsRes.json()) as unknown;
       if (Array.isArray(list)) setItems(list as IntegrationItem[]);
       if (st && typeof st === 'object' && 'deliveries24h' in st) setStats(st as Stats);
+      void loadRegistry();
     } catch {
       /* keep previous state */
     } finally {
       setRefreshing(false);
       setLoading(false);
     }
-  }, []);
+  }, [loadRegistry]);
 
   useEffect(() => {
     void fetchAll();
@@ -250,6 +270,7 @@ export default function IntegrationsPage() {
     setEditingId(null);
     setForm({ ...EMPTY_FORM });
     setFormError(null);
+    void loadRegistry();
     setShowForm(true);
   };
 
@@ -272,6 +293,7 @@ export default function IntegrationsPage() {
     });
     setFormError(null);
     setDetail(null);
+    void loadRegistry();
     setShowForm(true);
   };
 
@@ -668,25 +690,107 @@ export default function IntegrationsPage() {
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
+                  {/* Tenant — selecting one filters the Organization list below it. */}
                   <div>
-                    <LabelWithInfo label="Organization ID (optional)" info="Injected into each delivered payload as organizationId. The receiver matches on it. Leave blank to send the punch's own organization. Set it to override." />
-                    <Input
-                      value={form.organizationId}
-                      onChange={(e) => setForm({ ...form, organizationId: e.target.value })}
-                      placeholder="e.g. ORG-TECHIVE (blank = event org)"
-                    />
-                  </div>
-                  <div>
-                    <LabelWithInfo label="Tenant ID (optional)" align="right" info="Injected into each delivered payload as tenantId so the receiver can map/match on it. Leave blank to omit tenantId entirely." />
-                    <Input
+                    <LabelWithInfo label="Tenant (optional)" info="Select a registered Tenant. Its code is injected into each delivered payload as tenantId for the receiver to match on. Leave as None to omit tenantId." />
+                    <select
                       value={form.tenantId}
-                      onChange={(e) => setForm({ ...form, tenantId: e.target.value })}
-                      placeholder="e.g. TENANT-XYZ (blank = omitted)"
+                      onChange={(e) => {
+                        const code = e.target.value;
+                        const t = tenants.find((x) => x.code === code);
+                        const keepOrg =
+                          !form.organizationId ||
+                          !t ||
+                          orgs.some((o) => o.code === form.organizationId && o.tenantId === t.id);
+                        setForm({
+                          ...form,
+                          tenantId: code,
+                          organizationId: keepOrg ? form.organizationId : '',
+                        });
+                      }}
+                      className="w-full h-9 rounded-md border border-border bg-background px-2 text-sm"
+                    >
+                      <option value="">— None —</option>
+                      {form.tenantId && !tenants.some((t) => t.code === form.tenantId) && (
+                        <option value={form.tenantId}>{form.tenantId} (unregistered)</option>
+                      )}
+                      {tenants.map((t) => (
+                        <option key={t.id} value={t.code}>
+                          {t.name} ({t.code})
+                        </option>
+                      ))}
+                    </select>
+                    {tenants.length === 0 && (
+                      <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
+                        No tenants yet.{' '}
+                        <a href="/organizations" className="underline">
+                          Register one
+                        </a>
+                        .
+                      </p>
+                    )}
+                  </div>
+                  {/* Organization — filtered to the selected Tenant's organizations. */}
+                  <div>
+                    <LabelWithInfo
+                      label="Organization (optional)"
+                      align="right"
+                      info="Select a registered Organization. Its code is injected as organizationId. Leave as Event organization to send the punch's own org. Filtered by the selected Tenant."
                     />
+                    {(() => {
+                      const selTenant = tenants.find((x) => x.code === form.tenantId);
+                      const availableOrgs = selTenant
+                        ? orgs.filter((o) => o.tenantId === selTenant.id)
+                        : orgs;
+                      const hasUnregisteredOrg =
+                        !!form.organizationId && !orgs.some((o) => o.code === form.organizationId);
+                      return (
+                        <>
+                          <select
+                            value={form.organizationId}
+                            onChange={(e) => setForm({ ...form, organizationId: e.target.value })}
+                            className="w-full h-9 rounded-md border border-border bg-background px-2 text-sm"
+                          >
+                            <option value="">— Event organization —</option>
+                            {hasUnregisteredOrg && (
+                              <option value={form.organizationId}>
+                                {form.organizationId} (unregistered)
+                              </option>
+                            )}
+                            {availableOrgs.map((o) => (
+                              <option key={o.id} value={o.code}>
+                                {o.name} ({o.code})
+                              </option>
+                            ))}
+                          </select>
+                          {orgs.length === 0 ? (
+                            <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
+                              No organizations yet.{' '}
+                              <a href="/organizations" className="underline">
+                                Register one
+                              </a>
+                              .
+                            </p>
+                          ) : selTenant && availableOrgs.length === 0 ? (
+                            <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
+                              No organizations under &ldquo;{selTenant.name}&rdquo;.{' '}
+                              <a href="/organizations" className="underline">
+                                Add one
+                              </a>
+                              .
+                            </p>
+                          ) : null}
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
                 <p className="text-[11px] text-muted-foreground -mt-1">
-                  Identifiers injected into each delivered payload. The receiver must mirror exactly what you set here.
+                  Pick registered records (manage them on the{' '}
+                  <a href="/organizations" className="underline">
+                    Organizations &amp; Tenants
+                  </a>{' '}
+                  page). Their codes are injected into each delivered payload; the receiver must mirror them.
                 </p>
                 <div>
                   <LabelWithInfo label="Signing Mode" info="How deliveries are signed so the receiver can verify them. HMAC-SHA256 uses a shared secret (shown in Details). Ed25519 signs with a private key the platform keeps; the receiver verifies with the public key (safer — the receiver can't forge events). None sends unsigned (not recommended). Must match what the receiver is configured for." />

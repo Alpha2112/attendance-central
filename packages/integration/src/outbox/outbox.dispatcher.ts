@@ -199,7 +199,7 @@ export class OutboxDispatcher {
       }
 
       const rows = (await this.db.query(
-        `SELECT i.id, i.organization_id, i.tenant_id, i.payload_organization_id, i.name, i.target_type, i.endpoint_url,
+        `SELECT i.id, i.organization_id, i.payload_tenant_id, i.payload_organization_id, i.name, i.target_type, i.endpoint_url,
                 i.auth_type, i.secret_reference, i.retry_limit, i.timeout_ms, s.filter_rules
          FROM integrations i
          INNER JOIN integration_subscriptions s ON s.integration_id = i.id
@@ -208,7 +208,7 @@ export class OutboxDispatcher {
       )) as Array<{
         id: number;
         organization_id: string;
-        tenant_id: string | null;
+        payload_tenant_id: string | null;
         payload_organization_id: string | null;
         name: string;
         target_type: string;
@@ -225,7 +225,7 @@ export class OutboxDispatcher {
       return rows.map((r) => ({
         id: r.id,
         organizationId: r.organization_id,
-        tenantId: r.tenant_id ?? null,
+        tenantId: r.payload_tenant_id ?? null,
         payloadOrganizationId: r.payload_organization_id ?? null,
         name: r.name,
         targetType: r.target_type,

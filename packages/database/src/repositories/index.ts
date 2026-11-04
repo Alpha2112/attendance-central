@@ -8,3 +8,4 @@ export * from './outbox.repository.js';
 export * from './sync.repository.js';
 export * from './audit.repository.js';
 export * from './integration.repository.js';
+export * from './tenant.repository.js';

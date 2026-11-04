@@ -218,7 +218,7 @@ export class IntegrationsService {
       name: String(row['name']),
       targetType: String(row['target_type']),
       endpointUrl: String(row['endpoint_url']),
-      tenantId: row['tenant_id'] ? String(row['tenant_id']) : null,
+      tenantId: row['payload_tenant_id'] ? String(row['payload_tenant_id']) : null,
       organizationId: row['payload_organization_id'] ? String(row['payload_organization_id']) : null,
       authType: String(row['auth_type']),
       status: String(row['status']),
@@ -292,7 +292,7 @@ export class IntegrationsService {
 
     const res = await this.db.query<any>(
       `INSERT INTO integrations
-        (organization_id, tenant_id, payload_organization_id, name, target_type, endpoint_url, auth_type, secret_reference, status, retry_limit, timeout_ms, metadata)
+        (organization_id, payload_tenant_id, payload_organization_id, name, target_type, endpoint_url, auth_type, secret_reference, status, retry_limit, timeout_ms, metadata)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         ORG_ID,
@@ -335,7 +335,7 @@ export class IntegrationsService {
     if (dto.name !== undefined) setCol('name', dto.name);
     if (dto.targetType !== undefined) setCol('target_type', dto.targetType);
     if (dto.endpointUrl !== undefined) setCol('endpoint_url', dto.endpointUrl);
-    if (dto.tenantId !== undefined) setCol('tenant_id', dto.tenantId?.trim() || null);
+    if (dto.tenantId !== undefined) setCol('payload_tenant_id', dto.tenantId?.trim() || null);
     if (dto.organizationId !== undefined) setCol('payload_organization_id', dto.organizationId?.trim() || null);
     if (dto.authType !== undefined) setCol('auth_type', dto.authType);
     if (dto.status !== undefined) setCol('status', dto.status);
