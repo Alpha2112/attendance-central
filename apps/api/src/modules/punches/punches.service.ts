@@ -11,7 +11,7 @@ import {
 } from '@attendance/database';
 import { AppLogger } from '@attendance/logging';
 import { LOGGER_TOKEN } from '../logging/logging.module.js';
-import { ISAPIClient } from '@attendance/adapter-hikvision';
+import { ISAPIClient, type HikvisionAcsEventRecord } from '@attendance/adapter-hikvision';
 import { SupremaDeviceAdapter } from '@attendance/adapter-suprema';
 import { KafkaProducer } from '@attendance/kafka';
 import {
@@ -23,6 +23,7 @@ import {
   normalizeVerificationType,
   type RawAttendanceEvent,
   type DeviceModel,
+  type SyncCursor,
 } from '@attendance/contracts';
 import { PunchQueryDto, IngestPunchDto } from './dto/punch-query.dto.js';
 import { randomUUID } from 'node:crypto';
@@ -57,13 +58,21 @@ export class PunchesService implements OnModuleInit, OnModuleDestroy {
   private readonly mappingRepo: DeviceEmployeeMappingRepository;
   private readonly outboxRepo: OutboxRepository;
   private pollIntervalTimer: NodeJS.Timeout | null = null;
+  // Per-device high-water serial so steady-state polls read only the tail of the
+  // device log. Rebuilt lazily from the DB after a restart (see getSyncFloor).
   private lastSyncedSerialMap = new Map<number, number>();
+  // Re-entrancy guard: a catch-up backfill can span many pages/seconds, and the
+  // 1s poller must never stack a second sync on top of one already running.
+  private readonly syncInProgress = new Set<number>();
 
   // Suprema devices stream punches in real time through the G-SDK gateway; we keep
   // one live subscription per online device and persist events as they arrive.
   private readonly supremaAdapter: SupremaDeviceAdapter;
   private readonly supremaSubscriptions = new Map<number, () => void>();
   private supremaSetupTimer: NodeJS.Timeout | null = null;
+  // Next G-SDK log id to fetch per Suprema device, for backlog reconciliation on
+  // reconnect. Rebuilt lazily from the DB after a restart (see getSupremaCursor).
+  private readonly supremaCursor = new Map<number, number>();
 
   constructor(
     @Inject(DatabaseClient) private readonly db: DatabaseClient,
@@ -183,6 +192,19 @@ export class PunchesService implements OnModuleInit, OnModuleDestroy {
       this.supremaSubscriptions.set(device.id, () => {});
       try {
         const deviceModel = this.toDeviceModel(device);
+        // Before opening the real-time stream, drain any punches the terminal
+        // buffered while it was unreachable. Done sequentially (never concurrently
+        // with the monitor stream, which shares the single G-SDK connection) and
+        // strictly best-effort: any failure here must not stop the subscription
+        // from opening, so the live stream behaves exactly as before.
+        try {
+          await this.reconcileSupremaBacklog(device, deviceModel);
+        } catch (err: unknown) {
+          this.logger.warn(
+            { deviceId: device.id, error: err instanceof Error ? err.message : String(err) },
+            'Suprema backlog reconciliation failed (continuing to real-time subscribe)',
+          );
+        }
         const unsubscribe = await this.supremaAdapter.subscribe(
           deviceModel,
           async (event) => {
@@ -394,6 +416,88 @@ export class PunchesService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /**
+   * Returns the G-SDK log id to resume backlog reconciliation from for a Suprema
+   * device. Prefers the in-memory cursor; after a restart it is rebuilt from the
+   * highest log id already stored (Suprema vendor_event_id is "deviceID:logID"),
+   * so a restart resumes near the real boundary instead of re-scanning the whole
+   * on-board log. Returns an inclusive start — any re-fetched event is de-duped.
+   */
+  private async getSupremaCursor(deviceId: number): Promise<number> {
+    const cached = this.supremaCursor.get(deviceId);
+    if (cached !== undefined) return cached;
+    let start = 0;
+    try {
+      const rows = (await this.db.query(
+        `SELECT MAX(CAST(SUBSTRING_INDEX(vendor_event_id, ':', -1) AS UNSIGNED)) AS maxId
+         FROM raw_punch_logs
+         WHERE device_id = ? AND vendor_event_id LIKE '%:%'`,
+        [deviceId],
+      )) as Array<{ maxId: number | string | null }>;
+      const raw = Array.isArray(rows) && rows[0] ? rows[0].maxId : null;
+      start = raw != null ? Number(raw) || 0 : 0;
+    } catch {
+      start = 0;
+    }
+    this.supremaCursor.set(deviceId, start);
+    return start;
+  }
+
+  /**
+   * Drains punches a Suprema terminal buffered while it was unreachable, by
+   * paging the device log forward from the saved cursor until there is no more.
+   * Each event is persisted through the same idempotent path as real-time punches
+   * (fingerprint UNIQUE + outbox-on-insert), so overlap with the live stream or a
+   * previous run creates no duplicate rows and fires no duplicate webhooks.
+   *
+   * Runs sequentially before the real-time subscription opens (never concurrently
+   * on the shared G-SDK connection). Bounded by MAX_BATCHES per connect; any
+   * remainder is drained on the next reconnect.
+   */
+  private async reconcileSupremaBacklog(
+    device: DeviceEntity,
+    deviceModel: DeviceModel,
+  ): Promise<void> {
+    const MAX_BATCHES = 500;
+    let cursor: SyncCursor = { lastLogIndex: await this.getSupremaCursor(device.id) };
+    let batches = 0;
+    let recovered = 0;
+
+    for (;;) {
+      const res = await this.supremaAdapter.fetchLogs(deviceModel, cursor);
+      batches++;
+
+      for (const ev of res.events) {
+        await this.persistSupremaPunch(device, ev);
+        recovered++;
+      }
+
+      const nextIndex = res.nextCursor?.lastLogIndex;
+      if (typeof nextIndex === 'number') {
+        this.supremaCursor.set(device.id, nextIndex);
+      }
+
+      if (!res.hasMore) break;
+      if (batches >= MAX_BATCHES) {
+        this.logger.warn(
+          { deviceId: device.id, batches, recovered },
+          'Suprema backlog reconcile hit the batch cap; remainder will drain on the next reconnect',
+        );
+        break;
+      }
+      // Guard against a cursor that fails to advance (never loop forever).
+      if (typeof nextIndex !== 'number' || nextIndex <= (cursor.lastLogIndex ?? 0)) break;
+      cursor = res.nextCursor ?? cursor;
+    }
+
+    if (recovered > 0) {
+      this.logger.info(
+        { deviceId: device.id, deviceCode: device.device_code, recovered, batches },
+        'Reconciled Suprema buffered punches on connect',
+      );
+    }
+  }
+
   private startBackgroundPoller() {
     // Automatically poll real devices every 1 second so punches show up on the live stream immediately!
     this.pollIntervalTimer = setInterval(async () => {
@@ -553,6 +657,138 @@ export class PunchesService implements OnModuleInit, OnModuleDestroy {
       throw new NotFoundException(`Device ${deviceIdOrCode} not found in registry`);
     }
 
+    // Never run two syncs for the same device at once — a reconnect backfill can
+    // take many seconds and the 1s poller would otherwise stack calls on top of it.
+    if (this.syncInProgress.has(device.id)) {
+      return {
+        success: true,
+        syncedCount: 0,
+        newCount: 0,
+        duplicateCount: 0,
+        deviceCode: device.device_code,
+        events: await this.getLiveFeed(10),
+      };
+    }
+    this.syncInProgress.add(device.id);
+    try {
+      return await this.runDeviceSync(device);
+    } finally {
+      this.syncInProgress.delete(device.id);
+    }
+  }
+
+  /**
+   * Syncs every registered pull-based (Hikvision/ISAPI) terminal, resolving them
+   * from the registry instead of a hard-coded device code. Suprema terminals are
+   * push + reconcile-on-connect, so they are not pulled here. Returns an aggregate
+   * summary plus a per-device breakdown; a failure on one device does not abort
+   * the others.
+   */
+  public async syncAllPullDevices(): Promise<{
+    success: boolean;
+    deviceCount: number;
+    syncedCount: number;
+    newCount: number;
+    duplicateCount: number;
+    deviceCode: string | null;
+    message: string;
+    results: Array<{
+      deviceCode: string;
+      success: boolean;
+      newCount: number;
+      duplicateCount: number;
+      error?: string;
+    }>;
+  }> {
+    const devices = await this.deviceRepo.listByOrg(1);
+    const pullDevices = devices.filter((d) => d.vendor === 'HIKVISION');
+
+    if (pullDevices.length === 0) {
+      return {
+        success: true,
+        deviceCount: 0,
+        syncedCount: 0,
+        newCount: 0,
+        duplicateCount: 0,
+        deviceCode: null,
+        message:
+          'No pull-based (Hikvision) terminal is registered. Suprema terminals stream in real time and reconcile automatically on reconnect.',
+        results: [],
+      };
+    }
+
+    let newCount = 0;
+    let duplicateCount = 0;
+    let syncedCount = 0;
+    const results: Array<{
+      deviceCode: string;
+      success: boolean;
+      newCount: number;
+      duplicateCount: number;
+      error?: string;
+    }> = [];
+
+    for (const d of pullDevices) {
+      try {
+        const r = await this.syncFromDevice(d.id);
+        newCount += r.newCount;
+        duplicateCount += r.duplicateCount;
+        syncedCount += r.syncedCount;
+        results.push({
+          deviceCode: r.deviceCode,
+          success: true,
+          newCount: r.newCount,
+          duplicateCount: r.duplicateCount,
+        });
+      } catch (err: unknown) {
+        results.push({
+          deviceCode: d.device_code,
+          success: false,
+          newCount: 0,
+          duplicateCount: 0,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    const okCount = results.filter((r) => r.success).length;
+    const allOk = okCount === results.length;
+    const message = allOk
+      ? `Synced ${okCount} terminal(s): ${newCount} new, ${duplicateCount} duplicate(s) rejected.`
+      : `Synced ${okCount}/${results.length} terminal(s); ${results.length - okCount} unreachable.`;
+
+    return {
+      success: allOk,
+      deviceCount: pullDevices.length,
+      syncedCount,
+      newCount,
+      duplicateCount,
+      deviceCode: pullDevices.length === 1 ? pullDevices[0]!.device_code : null,
+      message,
+      results,
+    };
+  }
+
+  /**
+   * Pulls punches from a Hikvision terminal and ingests them idempotently.
+   *
+   * Catch-up aware: instead of reading only the newest page, it pages BACKWARD
+   * from the latest event through the device's on-board buffer until it reaches
+   * events that are already stored (or at/below the per-device watermark), so a
+   * terminal that was offline for hours, days or weeks backfills every buffered
+   * punch the moment it reconnects — bounded only by the device's own log
+   * capacity. De-duplication is guaranteed by the `event_fingerprint` UNIQUE
+   * constraint (insertIdempotent), so overlapping reads create no duplicate rows
+   * and fire no duplicate webhooks.
+   */
+  private async runDeviceSync(device: DeviceEntity): Promise<{
+    success: boolean;
+    syncedCount: number;
+    newCount: number;
+    duplicateCount: number;
+    deviceCode: string;
+    events: PunchLogItem[];
+  }> {
     const host = device.host || '192.168.100.186';
     let port = device.port || 80;
     if (port === 8000) port = 80; // Map SADP 8000 to ISAPI 80
@@ -573,7 +809,13 @@ export class PunchesService implements OnModuleInit, OnModuleDestroy {
       this.logger,
     );
 
-    // Search latest ACS events from hardware terminal
+    const PAGE_SIZE = 30;
+    // Safety bound on a single reconnect's catch-up (~30k buffered punches). The
+    // page boundary normally stops us long before this; the cap only guards
+    // against a pathological loop. Remaining events are picked up on later polls.
+    const MAX_BACKFILL_PAGES = 1000;
+
+    // How many events the terminal currently holds in its on-board buffer.
     const countCheck = await client.searchAcsEvents({
       searchID: randomUUID(),
       searchResultPosition: 0,
@@ -581,175 +823,82 @@ export class PunchesService implements OnModuleInit, OnModuleDestroy {
       major: 0,
     });
     const totalMatches = countCheck.AcsEvent?.totalMatches || 0;
-    // Set searchStart to totalMatches - 20 to ensure the 30-item ISAPI page limit reaches the absolute latest event
-    const searchStart = Math.max(0, totalMatches - 20);
 
-    const acsRes = await client.searchAcsEvents({
-      searchID: randomUUID(),
-      searchResultPosition: searchStart,
-      maxResults: 30,
-      major: 0,
-    });
+    // Serial watermark: everything at/below this is already ingested (or was
+    // intentionally skipped by a purge). Snapshotted once so it can't drift as we
+    // ingest within this pass. Rebuilt from the DB after a restart.
+    const floor = await this.getSyncFloor(device.id);
 
-    const rawList = acsRes.AcsEvent?.InfoList || [];
-    // Sort rawList strictly ascending by serialNo so events are evaluated in true hardware sequence
-    rawList.sort((a, b) => (a.serialNo || 0) - (b.serialNo || 0));
-
-    // Keep ONLY valid employee authentication events (face, fingerprint, card)
-    const infoList = rawList.filter(
-      (i) => i.employeeNoString || i.name || i.cardNo || i.minor === 75 || i.minor === 38 || i.minor === 1,
-    );
     let newCount = 0;
     let duplicateCount = 0;
+    let syncedCount = 0;
+    let highestSerial = floor;
+    let pagesRead = 0;
 
-    const lastSyncedSerial = this.lastSyncedSerialMap.get(device.id) || 0;
-
-    for (const info of infoList) {
-      if (!info.time) continue;
-
-      // Extract raw vendor employee ID from event identity attributes
-      const rawVendorUserId = info.employeeNoString || (info.name === 'amare' ? '2' : info.cardNo);
-      
-      // If event has no employee identity (e.g. door relay unlock or invalid system event), ignore it
-      if (!rawVendorUserId) continue;
-
-      if (lastSyncedSerial > 0 && info.serialNo && info.serialNo <= lastSyncedSerial) {
-        continue;
-      }
-
-      // Update checkpoint for this device as we see higher serial numbers for valid employee punches
-      if (info.serialNo) {
-        const currentHigh = this.lastSyncedSerialMap.get(device.id) || 0;
-        this.lastSyncedSerialMap.set(device.id, Math.max(currentHigh, info.serialNo));
-      }
-
-      const deviceTime = new Date(info.time);
-      const eventDate = deviceTime.toISOString().split('T')[0]!;
-      const punchTimeUtc = deviceTime.toISOString();
-
-      // Resolve employee mapping on this device
-      const mapping = await this.mappingRepo.findMapping(device.id, rawVendorUserId);
-      const externalEmployeeId = mapping ? mapping.external_employee_id : `EMP-${rawVendorUserId.padStart(4, '0')}`;
-
-      // Map verification mode accurately by ISAPI minor code first, then payload attributes
-      let verificationType: VerificationType = VerificationType.FACE;
-      const verifyModeStr = (info.currentVerifyMode || '').toLowerCase();
-
-      if (info.minor === 38 || info.minor === 39 || verifyModeStr === 'fingerprint' || verifyModeStr === 'fp') {
-        verificationType = VerificationType.FINGERPRINT;
-      } else if (info.minor === 1 || info.minor === 2 || info.minor === 5 || verifyModeStr === 'card') {
-        verificationType = VerificationType.CARD;
-      } else if (info.minor === 75 || info.minor === 76 || Boolean((info as any).FaceRect) || verifyModeStr === 'face') {
-        verificationType = VerificationType.FACE;
-      } else if (verifyModeStr.includes('finger') || verifyModeStr.includes('fp')) {
-        verificationType = VerificationType.FINGERPRINT;
-      } else if (verifyModeStr.includes('card') || info.cardNo) {
-        verificationType = VerificationType.CARD;
-      }
-
-      // Map punch type
-      let punchType: PunchType = PunchType.IN;
-      if (info.minor === 75 || info.minor === 38 || info.minor === 21 || info.minor === 1) {
-        punchType = PunchType.IN;
-      } else if (info.minor === 76 || info.minor === 39 || info.minor === 22) {
-        punchType = PunchType.OUT;
-      }
-
-      const fingerprint = generateEventFingerprint({
-        organizationId: 'ORG-TECHIVE',
-        employeeId: externalEmployeeId,
-        deviceId: device.device_code,
-        punchTimeUtc,
-        punchType,
+    // Page BACKWARD from the newest event through the buffer, stopping as soon as
+    // we reach events already stored (fingerprint duplicate) or at/below the
+    // watermark. In steady state this reads a single page; after a long outage it
+    // walks back far enough to recover every buffered punch.
+    let position = Math.max(0, totalMatches - PAGE_SIZE);
+    for (;;) {
+      const acsRes = await client.searchAcsEvents({
+        searchID: randomUUID(),
+        searchResultPosition: position,
+        maxResults: PAGE_SIZE,
+        major: 0,
       });
+      pagesRead++;
 
-      // Insert raw punch log
-      const rawLogRes = await this.db.query<any>(
-        `INSERT INTO raw_punch_logs (
-          event_date, organization_id, device_id, vendor, vendor_event_id,
-          vendor_user_id, device_time, received_at, raw_payload, payload_hash, normalization_status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP(6), ?, ?, 'PROCESSED')`,
-        [
-          eventDate,
-          device.organization_id,
-          device.id,
-          device.vendor,
-          String(info.serialNo || randomUUID()),
-          rawVendorUserId,
-          deviceTime,
-          JSON.stringify(info),
-          fingerprint,
-        ],
+      const rawList = acsRes.AcsEvent?.InfoList || [];
+      // Oldest-first so the first processed event in the page is the oldest.
+      rawList.sort((a, b) => (a.serialNo || 0) - (b.serialNo || 0));
+      const infoList = rawList.filter(
+        (i) => i.employeeNoString || i.name || i.cardNo || i.minor === 75 || i.minor === 38 || i.minor === 1,
       );
 
-      const rawLogId = rawLogRes.insertId || 1;
+      let pageMinSerial = Number.POSITIVE_INFINITY;
+      let sawAttempted = false;
+      let oldestAttemptedWasDuplicate = false;
 
-      const eventValue: Record<string, unknown> = {
-        eventId: randomUUID(),
-        schemaVersion: 1,
-        organizationId: 'ORG-TECHIVE',
-        branchId: device.branch_id ?? null,
-        employeeId: externalEmployeeId,
-        deviceId: device.device_code,
-        vendor: device.vendor,
-        punchTime: deviceTime.toISOString(),
-        punchTimeUtc,
-        receivedAt: new Date().toISOString(),
-        punchType,
-        verificationType,
-        source: 'PULL',
-        eventFingerprint: fingerprint,
-        metadata: {
-          hardwareSerial: device.serial_number,
-          doorNo: info.doorNo,
-          cardNo: info.cardNo,
-          userName: info.name,
-        },
-      };
+      for (const info of infoList) {
+        if (!info.time) continue;
+        if (info.serialNo) pageMinSerial = Math.min(pageMinSerial, info.serialNo);
+        // Skip anything already covered by the watermark (already synced / purged past).
+        if (floor > 0 && info.serialNo && info.serialNo <= floor) continue;
 
-      // Idempotently insert into attendance_logs + enqueue the outbox event atomically.
-      const result = await runInTransaction(this.db, async (conn) => {
-        const r = await this.attendanceRepo.insertIdempotent(
-          {
-            eventDate,
-            organizationId: device.organization_id,
-            employeeId: externalEmployeeId,
-            deviceId: device.id,
-            vendor: device.vendor,
-            rawLogId,
-            punchTime: deviceTime,
-            punchTimeUtc: deviceTime,
-            receivedAt: new Date(),
-            punchType,
-            verificationType,
-            source: 'PULL',
-            vendorEventId: String(info.serialNo || ''),
-            eventFingerprint: fingerprint,
-          },
-          conn,
-        );
-        if (r.inserted) {
-          await this.enqueueWebhookOutbox(conn, device, fingerprint, eventValue);
+        const outcome = await this.ingestHikvisionEvent(device, info);
+        if (!outcome.processed) continue; // no employee identity -> not a punch
+
+        syncedCount++;
+        if (!sawAttempted) {
+          oldestAttemptedWasDuplicate = !outcome.inserted;
+          sawAttempted = true;
         }
-        return r;
-      });
-
-      if (result.inserted) {
-        newCount++;
-
-        // Publish to Kafka topic attendance.normalized.v1
-        try {
-          await this.kafkaProducer.publish({
-            topic: KAFKA_TOPICS.ATTENDANCE_NORMALIZED,
-            key: device.device_code,
-            value: eventValue,
-          });
-        } catch {
-          // Kafka emission fallback
-        }
-      } else {
-        duplicateCount++;
+        if (outcome.inserted) newCount++;
+        else duplicateCount++;
+        if (info.serialNo && info.serialNo > highestSerial) highestSerial = info.serialNo;
       }
+
+      // --- Stop conditions ---
+      if (position === 0) break; // reached the oldest event still in the buffer
+      if (pagesRead >= MAX_BACKFILL_PAGES) {
+        this.logger.warn(
+          { deviceId: device.id, pagesRead },
+          'Hikvision backfill hit the page cap; remaining events will sync on the next poll',
+        );
+        break;
+      }
+      // Crossed below the watermark -> everything older is already handled.
+      if (floor > 0 && pageMinSerial !== Number.POSITIVE_INFINITY && pageMinSerial <= floor) break;
+      // Reached already-stored events (oldest punch in this page was a duplicate).
+      if (sawAttempted && oldestAttemptedWasDuplicate) break;
+
+      position = Math.max(0, position - PAGE_SIZE);
+    }
+
+    // Advance the in-memory watermark so steady-state polls read only the tail.
+    if (highestSerial > (this.lastSyncedSerialMap.get(device.id) || 0)) {
+      this.lastSyncedSerialMap.set(device.id, highestSerial);
     }
 
     // Update device status
@@ -761,12 +910,186 @@ export class PunchesService implements OnModuleInit, OnModuleDestroy {
 
     return {
       success: true,
-      syncedCount: infoList.length,
+      syncedCount,
       newCount,
       duplicateCount,
       deviceCode: device.device_code,
       events: recentFeed,
     };
+  }
+
+  /**
+   * Returns the per-device serial watermark used to bound catch-up. Prefers the
+   * in-memory value; after a process restart (empty map) it is rebuilt from the
+   * highest serial already persisted for the device, so a restart resumes at the
+   * real boundary instead of re-scanning the whole on-board buffer.
+   */
+  private async getSyncFloor(deviceId: number): Promise<number> {
+    const cached = this.lastSyncedSerialMap.get(deviceId);
+    if (cached !== undefined) return cached;
+    let floor = 0;
+    try {
+      const rows = (await this.db.query(
+        `SELECT MAX(CAST(vendor_event_id AS UNSIGNED)) AS maxSerial
+         FROM raw_punch_logs WHERE device_id = ?`,
+        [deviceId],
+      )) as Array<{ maxSerial: number | string | null }>;
+      const raw = Array.isArray(rows) && rows[0] ? rows[0].maxSerial : null;
+      floor = raw != null ? Number(raw) || 0 : 0;
+    } catch {
+      floor = 0;
+    }
+    this.lastSyncedSerialMap.set(deviceId, floor);
+    return floor;
+  }
+
+  /**
+   * Normalizes and idempotently persists a single Hikvision ACS event.
+   * De-duplication is enforced by the `event_fingerprint` UNIQUE constraint, and
+   * the webhook outbox row is enqueued in the SAME transaction only when the
+   * attendance row is actually inserted — so replaying an already-seen event is a
+   * no-op (no duplicate row, no duplicate webhook).
+   *
+   * Returns `processed=false` for non-punch records (door relay, system events
+   * with no employee identity); otherwise `inserted` reflects whether this was a
+   * brand-new punch (true) or an already-stored duplicate (false).
+   */
+  private async ingestHikvisionEvent(
+    device: DeviceEntity,
+    info: HikvisionAcsEventRecord,
+  ): Promise<{ processed: boolean; inserted: boolean }> {
+    // Extract raw vendor employee ID from event identity attributes.
+    const rawVendorUserId = info.employeeNoString || (info.name === 'amare' ? '2' : info.cardNo);
+    // No employee identity (e.g. door relay unlock or invalid system event) -> not a punch.
+    if (!rawVendorUserId || !info.time) return { processed: false, inserted: false };
+
+    const deviceTime = new Date(info.time);
+    const eventDate = deviceTime.toISOString().split('T')[0]!;
+    const punchTimeUtc = deviceTime.toISOString();
+
+    // Resolve employee mapping on this device.
+    const mapping = await this.mappingRepo.findMapping(device.id, rawVendorUserId);
+    const externalEmployeeId = mapping
+      ? mapping.external_employee_id
+      : `EMP-${rawVendorUserId.padStart(4, '0')}`;
+
+    // Map verification mode accurately by ISAPI minor code first, then payload attributes.
+    let verificationType: VerificationType = VerificationType.FACE;
+    const verifyModeStr = (info.currentVerifyMode || '').toLowerCase();
+
+    if (info.minor === 38 || info.minor === 39 || verifyModeStr === 'fingerprint' || verifyModeStr === 'fp') {
+      verificationType = VerificationType.FINGERPRINT;
+    } else if (info.minor === 1 || info.minor === 2 || info.minor === 5 || verifyModeStr === 'card') {
+      verificationType = VerificationType.CARD;
+    } else if (info.minor === 75 || info.minor === 76 || Boolean((info as any).FaceRect) || verifyModeStr === 'face') {
+      verificationType = VerificationType.FACE;
+    } else if (verifyModeStr.includes('finger') || verifyModeStr.includes('fp')) {
+      verificationType = VerificationType.FINGERPRINT;
+    } else if (verifyModeStr.includes('card') || info.cardNo) {
+      verificationType = VerificationType.CARD;
+    }
+
+    // Map punch type.
+    let punchType: PunchType = PunchType.IN;
+    if (info.minor === 75 || info.minor === 38 || info.minor === 21 || info.minor === 1) {
+      punchType = PunchType.IN;
+    } else if (info.minor === 76 || info.minor === 39 || info.minor === 22) {
+      punchType = PunchType.OUT;
+    }
+
+    const fingerprint = generateEventFingerprint({
+      organizationId: 'ORG-TECHIVE',
+      employeeId: externalEmployeeId,
+      deviceId: device.device_code,
+      punchTimeUtc,
+      punchType,
+    });
+
+    // Insert raw punch log.
+    const rawLogRes = await this.db.query<any>(
+      `INSERT INTO raw_punch_logs (
+        event_date, organization_id, device_id, vendor, vendor_event_id,
+        vendor_user_id, device_time, received_at, raw_payload, payload_hash, normalization_status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP(6), ?, ?, 'PROCESSED')`,
+      [
+        eventDate,
+        device.organization_id,
+        device.id,
+        device.vendor,
+        String(info.serialNo || randomUUID()),
+        rawVendorUserId,
+        deviceTime,
+        JSON.stringify(info),
+        fingerprint,
+      ],
+    );
+
+    const rawLogId = rawLogRes.insertId || 1;
+
+    const eventValue: Record<string, unknown> = {
+      eventId: randomUUID(),
+      schemaVersion: 1,
+      organizationId: 'ORG-TECHIVE',
+      branchId: device.branch_id ?? null,
+      employeeId: externalEmployeeId,
+      deviceId: device.device_code,
+      vendor: device.vendor,
+      punchTime: deviceTime.toISOString(),
+      punchTimeUtc,
+      receivedAt: new Date().toISOString(),
+      punchType,
+      verificationType,
+      source: 'PULL',
+      eventFingerprint: fingerprint,
+      metadata: {
+        hardwareSerial: device.serial_number,
+        doorNo: info.doorNo,
+        cardNo: info.cardNo,
+        userName: info.name,
+      },
+    };
+
+    // Idempotently insert into attendance_logs + enqueue the outbox event atomically.
+    const result = await runInTransaction(this.db, async (conn) => {
+      const r = await this.attendanceRepo.insertIdempotent(
+        {
+          eventDate,
+          organizationId: device.organization_id,
+          employeeId: externalEmployeeId,
+          deviceId: device.id,
+          vendor: device.vendor,
+          rawLogId,
+          punchTime: deviceTime,
+          punchTimeUtc: deviceTime,
+          receivedAt: new Date(),
+          punchType,
+          verificationType,
+          source: 'PULL',
+          vendorEventId: String(info.serialNo || ''),
+          eventFingerprint: fingerprint,
+        },
+        conn,
+      );
+      if (r.inserted) {
+        await this.enqueueWebhookOutbox(conn, device, fingerprint, eventValue);
+      }
+      return r;
+    });
+
+    if (result.inserted) {
+      // Publish to Kafka topic attendance.normalized.v1
+      try {
+        await this.kafkaProducer.publish({
+          topic: KAFKA_TOPICS.ATTENDANCE_NORMALIZED,
+          key: device.device_code,
+          value: eventValue,
+        });
+      } catch {
+        // Kafka emission fallback
+      }
+    }
+
+    return { processed: true, inserted: result.inserted };
   }
 
   public async ingestSimulatedPunch(dto: IngestPunchDto): Promise<PunchLogItem> {

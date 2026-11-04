@@ -135,16 +135,29 @@ export default function PunchesPage() {
   const handleSyncRealTerminal = async () => {
     setIsSyncing(true);
     try {
-      const res = await fetch('/api/punches/sync/DEV-HQ-HIK01', { method: 'POST' });
+      // Device is resolved server-side from the registry (no hard-coded code).
+      const res = await fetch('/api/punches/sync', { method: 'POST' });
       const data = await res.json();
-      if (data.success) {
+      if (data.deviceCount === 0) {
         showBanner(
-          `⚡ Synced physical terminal (${data.deviceCode || 'Hikvision'}): ${data.newCount} new punch(es) ingested, ${data.duplicateCount} duplicates rejected.`,
+          'ℹ No pull-based (Hikvision) terminal is registered. Suprema terminals stream live and back-fill automatically on reconnect.',
+          'info',
+        );
+      } else if (data.success) {
+        showBanner(
+          `⚡ Synced ${data.deviceCount} terminal(s): ${data.newCount} new punch(es) ingested, ${data.duplicateCount} duplicate(s) rejected.`,
           'success',
         );
         fetchPunches();
       } else {
-        showBanner(`❌ Sync failed: ${data.message || 'Unknown error'}`, 'error');
+        const failed = Array.isArray(data.results)
+          ? data.results.filter((r: { success: boolean }) => !r.success)
+          : [];
+        const detail = failed.length
+          ? failed.map((r: { deviceCode: string }) => r.deviceCode).join(', ')
+          : data.message || 'Unknown error';
+        showBanner(`❌ Sync failed for: ${detail}`, 'error');
+        fetchPunches();
       }
     } catch {
       showBanner('❌ Failed to connect to terminal for live event sync.', 'error');
@@ -473,10 +486,9 @@ export default function PunchesPage() {
                       <FingerprintIcon className="h-10 w-10 mx-auto text-muted-foreground/40" />
                       <div className="font-semibold text-foreground">No Punch Logs in Database</div>
                       <div className="text-xs text-muted-foreground">
-                        Ready for testing! Present your face, card, or fingerprint on your physical
-                        Hikvision device (
-                        <code className="text-foreground font-mono">192.168.100.186</code>), then
-                        click <strong>Sync Real Terminal</strong> or watch the Live Stream.
+                        Ready for testing! Present your face, card, or fingerprint on a registered
+                        terminal, then click <strong>Sync Real Terminal</strong> (Hikvision) or watch
+                        the Live Stream. Suprema terminals stream live automatically.
                       </div>
                     </div>
                   </TableCell>

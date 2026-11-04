@@ -38,9 +38,17 @@ export class PunchesController {
     return this.punchesService.getLiveFeed(limit ? Number(limit) : 25);
   }
 
+  @Post('sync')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Sync all registered pull-based (Hikvision) terminals' })
+  @ApiResponse({ status: 200, description: 'Aggregate sync summary across pull terminals' })
+  public async syncAllPullDevices() {
+    return this.punchesService.syncAllPullDevices();
+  }
+
   @Post('sync/:deviceId')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Sync real hardware events from physical biometric terminal' })
+  @ApiOperation({ summary: 'Sync real hardware events from a specific physical terminal' })
   @ApiParam({ name: 'deviceId', description: 'Device ID or Device Code' })
   @ApiResponse({ status: 200, description: 'Sync summary from hardware terminal' })
   public async syncFromDevice(@Param('deviceId') deviceId: string) {
