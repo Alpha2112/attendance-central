@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { RegistryService, type UpsertOrganizationDto } from './registry.service.js';
+import { RequirePermissions } from '../auth/decorators.js';
 
 @ApiTags('Organizations')
 @Controller(['organizations', 'api/v1/organizations'])
@@ -21,6 +22,7 @@ export class OrganizationsController {
   constructor(@Inject(RegistryService) private readonly registry: RegistryService) {}
 
   @Get()
+  @RequirePermissions('organizations.view')
   @ApiOperation({ summary: 'List organizations, optionally filtered by tenant' })
   @ApiQuery({ name: 'tenantId', required: false, description: 'Filter to one tenant' })
   @ApiResponse({ status: 200, description: 'List of organizations' })
@@ -32,6 +34,7 @@ export class OrganizationsController {
   }
 
   @Post()
+  @RequirePermissions('organizations.create')
   @ApiOperation({ summary: 'Register a new organization' })
   @ApiResponse({ status: 201, description: 'Organization created' })
   @HttpCode(HttpStatus.CREATED)
@@ -40,12 +43,14 @@ export class OrganizationsController {
   }
 
   @Patch(':id')
+  @RequirePermissions('organizations.edit')
   @ApiOperation({ summary: 'Update an organization' })
   public update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpsertOrganizationDto) {
     return this.registry.updateOrganization(id, dto);
   }
 
   @Delete(':id')
+  @RequirePermissions('organizations.delete')
   @ApiOperation({ summary: 'Delete an organization' })
   public async remove(@Param('id', ParseIntPipe) id: number) {
     await this.registry.deleteOrganization(id);

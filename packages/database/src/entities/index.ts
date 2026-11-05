@@ -10,3 +10,4 @@ export * from './integration.entity.js';
 export * from './api-client.entity.js';
 export * from './audit.entity.js';
 export * from './tenant.entity.js';
+export * from './rbac.entity.js';

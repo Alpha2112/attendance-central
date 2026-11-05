@@ -21,6 +21,7 @@ import {
   Fingerprint as FingerprintIcon,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Can } from '@/components/can';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -312,15 +313,17 @@ export default function PunchesPage() {
 
         {/* Global Action Buttons */}
         <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={() => setIsPurgeModalOpen(true)}
-            className="bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 font-medium"
-          >
-            <Trash2 className="h-4 w-4 mr-1.5" />
-            Clear All Logs
-          </Button>
+          <Can perm="punches.purge">
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => setIsPurgeModalOpen(true)}
+              className="bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 font-medium"
+            >
+              <Trash2 className="h-4 w-4 mr-1.5" />
+              Clear All Logs
+            </Button>
+          </Can>
 
           <Button
             variant="outline"
@@ -333,27 +336,31 @@ export default function PunchesPage() {
             Refresh
           </Button>
 
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleSyncRealTerminal}
-            disabled={isSyncing}
-            className="bg-blue-500/10 border-blue-500/30 hover:bg-blue-500/20 text-blue-600 dark:text-blue-400 font-medium"
-          >
-            <Zap className={`h-4 w-4 mr-1.5 ${isSyncing ? 'animate-pulse' : ''}`} />
-            {isSyncing ? 'Syncing...' : 'Sync Real Terminal'}
-          </Button>
+          <Can perm="punches.sync">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSyncRealTerminal}
+              disabled={isSyncing}
+              className="bg-blue-500/10 border-blue-500/30 hover:bg-blue-500/20 text-blue-600 dark:text-blue-400 font-medium"
+            >
+              <Zap className={`h-4 w-4 mr-1.5 ${isSyncing ? 'animate-pulse' : ''}`} />
+              {isSyncing ? 'Syncing...' : 'Sync Real Terminal'}
+            </Button>
+          </Can>
 
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={exportCSV}
-            disabled={punches.length === 0}
-            className="border-border bg-card hover:bg-muted font-medium"
-          >
-            <Download className="h-4 w-4 mr-1.5" />
-            Export CSV
-          </Button>
+          <Can perm="punches.export">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={exportCSV}
+              disabled={punches.length === 0}
+              className="border-border bg-card hover:bg-muted font-medium"
+            >
+              <Download className="h-4 w-4 mr-1.5" />
+              Export CSV
+            </Button>
+          </Can>
         </div>
       </div>
 

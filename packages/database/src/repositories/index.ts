@@ -9,3 +9,6 @@ export * from './sync.repository.js';
 export * from './audit.repository.js';
 export * from './integration.repository.js';
 export * from './tenant.repository.js';
+export * from './user.repository.js';
+export * from './role.repository.js';
+export * from './permission.repository.js';

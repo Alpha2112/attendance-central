@@ -10,6 +10,11 @@ import { MappingsModule } from './modules/mappings/mappings.module.js';
 import { PunchesModule } from './modules/punches/punches.module.js';
 import { IntegrationsModule } from './modules/integrations/integrations.module.js';
 import { RegistryModule } from './modules/registry/registry.module.js';
+import { AuthModule } from './modules/auth/auth.module.js';
+import { UsersModule } from './modules/users/users.module.js';
+import { RolesModule } from './modules/roles/roles.module.js';
+import { AuditModule } from './modules/audit/audit.module.js';
+import { SettingsModule } from './modules/settings/settings.module.js';
 
 @Module({
   imports: [
@@ -18,12 +23,19 @@ import { RegistryModule } from './modules/registry/registry.module.js';
     DatabaseModule,
     RedisModule,
     KafkaModule,
+    // AuthModule registers the global JwtAuthGuard + PermissionsGuard.
+    AuthModule,
+    // AuditModule registers the global audit interceptor + AuditService.
+    AuditModule,
     HealthModule,
     DevicesModule,
     MappingsModule,
     PunchesModule,
     IntegrationsModule,
     RegistryModule,
+    UsersModule,
+    RolesModule,
+    SettingsModule,
   ],
 })
 export class AppModule {}

@@ -6,7 +6,6 @@ import {
   Pause,
   Play,
   CheckCircle2,
-  Clock,
   Sparkles,
   RefreshCw,
   ShieldCheck,
@@ -18,10 +17,11 @@ import {
   Plus,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Can } from '@/components/can';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { MetricCard } from '@/components/ui/metric-card';
+import { StatTile } from '@/components/stat-tile';
 import {
   Table,
   TableBody,
@@ -199,26 +199,30 @@ export default function LiveStreamPage() {
 
         {/* Global Action Buttons */}
         <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleSyncRealTerminal}
-            disabled={isSyncing}
-            className="border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20 font-medium"
-          >
-            <Zap className={`h-4 w-4 mr-1.5 ${isSyncing ? 'animate-pulse' : ''}`} />
-            {isSyncing ? 'Pulling ISAPI Events...' : 'Sync Real Terminal (Hikvision)'}
-          </Button>
+          <Can perm="punches.sync">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSyncRealTerminal}
+              disabled={isSyncing}
+              className="border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20 font-medium"
+            >
+              <Zap className={`h-4 w-4 mr-1.5 ${isSyncing ? 'animate-pulse' : ''}`} />
+              {isSyncing ? 'Pulling ISAPI Events...' : 'Sync Real Terminal (Hikvision)'}
+            </Button>
+          </Can>
 
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setIsSimulateOpen(true)}
-            className="border-border bg-card hover:bg-muted font-medium"
-          >
-            <Plus className="h-4 w-4 mr-1.5" />
-            Simulate Punch
-          </Button>
+          <Can perm="punches.simulate">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsSimulateOpen(true)}
+              className="border-border bg-card hover:bg-muted font-medium"
+            >
+              <Plus className="h-4 w-4 mr-1.5" />
+              Simulate Punch
+            </Button>
+          </Can>
 
           <Button
             variant="outline"
@@ -263,48 +267,47 @@ export default function LiveStreamPage() {
         </div>
       )}
 
-      {/* Metrics Row (Standardized with MetricCard) */}
-      <div className="grid gap-4 md:grid-cols-4">
-        <MetricCard
-          title="Stream State"
-          value={isLive ? 'STREAMING ACTIVE' : 'STREAM PAUSED'}
-          delta="Realtime"
-          deltaType={isLive ? 'positive' : 'neutral'}
-          deltaLabel="Consumer Group"
-          subtext="ops-dashboard-group active"
-          icon={Radio}
-        />
-
-        <MetricCard
-          title="Throughput (Fleet)"
-          value={`${punches.length * 48 + 120}`}
-          delta="+12.5%"
-          deltaType="positive"
-          deltaLabel="Punches / Hour"
-          subtext="Peak: 38.4 events/sec"
-          icon={Sparkles}
-        />
-
-        <MetricCard
-          title="Ingestion Latency"
-          value="38ms"
-          delta="Sub-second"
-          deltaType="positive"
-          deltaLabel="Terminal → Kafka"
-          subtext="Real-time stream normalizer"
-          icon={Clock}
-        />
-
-        <MetricCard
-          title="Idempotency Deduplication"
-          value="100% Unique"
-          delta="SHA-256"
-          deltaType="positive"
-          deltaLabel="Fingerprint Guard"
-          subtext="0 duplicate leaks into DB"
-          icon={CheckCircle2}
-        />
-      </div>
+      {/* Metrics Row — compact, real live-stream telemetry */}
+      {(() => {
+        const terminals = new Set(punches.map((p) => p.deviceCode).filter(Boolean)).size;
+        const employees = new Set(punches.map((p) => p.employeeId).filter(Boolean)).size;
+        return (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <StatTile
+              title="Stream State"
+              value={isLive ? 'LIVE' : 'PAUSED'}
+              delta={isLive ? 'realtime' : 'paused'}
+              deltaType={isLive ? 'positive' : 'neutral'}
+              hint="Kafka feed"
+              icon={Radio}
+            />
+            <StatTile
+              title="Events in View"
+              value={`${punches.length}`}
+              delta="buffered"
+              deltaType="neutral"
+              hint="recent punches"
+              icon={Sparkles}
+            />
+            <StatTile
+              title="Active Terminals"
+              value={`${terminals}`}
+              delta={terminals > 0 ? 'streaming' : undefined}
+              deltaType="positive"
+              hint="sending events"
+              icon={CheckCircle2}
+            />
+            <StatTile
+              title="Employees Seen"
+              value={`${employees}`}
+              delta="unique"
+              deltaType="positive"
+              hint="in this stream"
+              icon={FingerprintIcon}
+            />
+          </div>
+        );
+      })()}
 
       {/* Main Stream Table */}
       <Card className="border-border bg-card shadow-xs">

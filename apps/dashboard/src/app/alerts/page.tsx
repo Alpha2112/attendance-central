@@ -1,173 +1,239 @@
 'use client';
 
-import React from 'react';
-import { ShieldAlert, CheckCircle2, Layers, ShieldCheck } from 'lucide-react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { ShieldAlert, ShieldCheck, Layers, RefreshCw, CheckCircle2 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { MetricCard } from '@/components/ui/metric-card';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { Button } from '@/components/ui/button';
+import { StatTile } from '@/components/stat-tile';
+import { useAuth } from '@/lib/auth';
 
-interface AlertItem {
-  id: string;
+interface AlertRow {
   severity: 'INFO' | 'WARNING' | 'CRITICAL';
   source: string;
   title: string;
   detail: string;
-  status: 'ACTIVE' | 'RESOLVED';
-  timestamp: string;
 }
 
-const mockAlerts: AlertItem[] = [
-  {
-    id: 'alt-1',
-    severity: 'INFO',
-    source: 'COLLECTOR',
-    title: 'Physical Terminal Live Verification Ingestion',
-    detail: 'Terminal DS-K1T321MFWX authenticated and ingested 30 raw biometric punch logs.',
-    status: 'RESOLVED',
-    timestamp: '25 mins ago',
-  },
-  {
-    id: 'alt-2',
-    severity: 'INFO',
-    source: 'NORMALIZER',
-    title: 'Transactional Outbox Batch Dispatched',
-    detail: 'Sample punch normalized, committed to MySQL outbox, and published to Kafka.',
-    status: 'RESOLVED',
-    timestamp: '3 mins ago',
-  },
-];
+interface Health {
+  status?: 'ok' | 'degraded' | 'error';
+  dependencies?: Record<string, { status?: 'up' | 'down' } | undefined>;
+}
+interface IntStats {
+  backlog: number;
+  deliveries24h: number;
+  successRate: number;
+}
+interface DeviceItem {
+  device_code?: string;
+  deviceCode?: string;
+  vendor?: string;
+  status?: string;
+}
 
 export default function AlertsPage() {
+  const { can } = useAuth();
+  const [health, setHealth] = useState<Health | null>(null);
+  const [stats, setStats] = useState<IntStats | null>(null);
+  const [devices, setDevices] = useState<DeviceItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const jobs: Promise<void>[] = [
+      fetch('/api/health', { cache: 'no-store' })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => setHealth(d))
+        .catch(() => {}),
+    ];
+    if (can('integrations.view')) {
+      jobs.push(
+        fetch('/api/integrations/stats', { cache: 'no-store' })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => setStats(d))
+          .catch(() => {}),
+      );
+    }
+    if (can('devices.view')) {
+      jobs.push(
+        fetch('/api/devices', { cache: 'no-store' })
+          .then((r) => (r.ok ? r.json() : []))
+          .then((d) => setDevices(Array.isArray(d) ? d : []))
+          .catch(() => {}),
+      );
+    }
+    await Promise.allSettled(jobs);
+    setLoading(false);
+  }, [can]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  // Derived real values.
+  const downDeps = health?.dependencies
+    ? Object.entries(health.dependencies)
+        .filter(([, v]) => v && v.status !== 'up')
+        .map(([k]) => k)
+    : [];
+  const offline = devices.filter((d) => (d.status || '').toUpperCase() !== 'ONLINE');
+  const backlog = stats?.backlog ?? 0;
+  const failures =
+    stats != null ? Math.max(0, Math.round(stats.deliveries24h * (1 - stats.successRate / 100))) : 0;
+
+  // Build the live alert feed from real conditions.
+  const alerts: AlertRow[] = [];
+  for (const dep of downDeps) {
+    alerts.push({
+      severity: 'CRITICAL',
+      source: 'INFRA',
+      title: `${dep} dependency unreachable`,
+      detail: `The ${dep} health check is failing.`,
+    });
+  }
+  for (const d of offline) {
+    alerts.push({
+      severity: 'WARNING',
+      source: 'DEVICE',
+      title: 'Terminal offline',
+      detail: `${d.device_code || d.deviceCode} (${(d.vendor || '').toUpperCase()}) is not reachable.`,
+    });
+  }
+  if (backlog > 0) {
+    alerts.push({
+      severity: 'WARNING',
+      source: 'OUTBOX',
+      title: 'Webhook backlog',
+      detail: `${backlog} event(s) pending delivery in the transactional outbox.`,
+    });
+  }
+  if (failures > 0) {
+    alerts.push({
+      severity: 'WARNING',
+      source: 'WEBHOOK',
+      title: 'Delivery failures',
+      detail: `${failures} failed webhook delivery attempt(s) in the last 24h.`,
+    });
+  }
+
+  const statusLabel =
+    health?.status === 'error' ? 'Down' : health?.status === 'degraded' ? 'Degraded' : 'Healthy';
+  const statusDeltaType =
+    health?.status === 'error' ? 'negative' : health?.status === 'degraded' ? 'neutral' : 'positive';
+
+  const severityCls: Record<string, string> = {
+    CRITICAL: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30',
+    WARNING: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30',
+    INFO: 'bg-muted text-muted-foreground border-border',
+  };
+
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-12">
+    <div className="space-y-4 max-w-[1600px] mx-auto pb-8">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-5">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-border pb-3">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <Badge
-              variant="outline"
-              className="text-xs font-semibold px-2 py-0.5 bg-muted/60 text-muted-foreground"
-            >
+            <Badge variant="outline" className="text-xs font-semibold px-2 py-0.5 bg-muted/60 text-muted-foreground">
               Reliability & Quarantine
             </Badge>
             <Badge variant="outline" className="text-xs font-mono text-muted-foreground">
               ORG-TECHIVE
             </Badge>
           </div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
+          <h1 className="text-xl md:text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
             <ShieldAlert className="h-6 w-6 text-primary" />
-            Alerts & Dead-Letter Queue (DLQ)
+            Alerts &amp; Dead-Letter Queue
           </h1>
           <p className="text-xs text-muted-foreground mt-0.5">
-            System anomalies, failed device heartbeats, poison-pill isolation, and dead-letter queue
-            replay.
+            Live reliability signals — infrastructure health, offline terminals, and webhook backlog.
           </p>
         </div>
+        <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading} className="font-medium">
+          <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
+          Refresh
+        </Button>
       </div>
 
-      {/* Metrics Row */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <MetricCard
-          title="Active System Alerts"
-          value="0 Active"
-          delta="Nominal"
-          deltaType="positive"
-          deltaLabel="All Systems Healthy"
-          subtext="2 Auto-resolved events"
-          icon={CheckCircle2}
-        />
-
-        <MetricCard
-          title="Kafka DLQ Backlog"
-          value="0 Messages"
-          delta="Clean"
-          deltaType="positive"
-          deltaLabel="attendance.dlq.v1"
-          subtext="Zero poison pill events"
-          icon={Layers}
-        />
-
-        <MetricCard
-          title="Circuit Breakers"
-          value="All Closed"
-          delta="Operational"
-          deltaType="positive"
-          deltaLabel="Hikvision / ZKTeco / Suprema"
-          subtext="Adaptive backoff standing by"
+      {/* Compact real metrics */}
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+        <StatTile
+          title="System Status"
+          value={statusLabel}
+          delta={downDeps.length ? `${downDeps.length} down` : 'nominal'}
+          deltaType={statusDeltaType}
+          hint="mysql · redis · kafka"
           icon={ShieldCheck}
         />
+        {can('integrations.view') && (
+          <StatTile
+            title="Outbox Backlog"
+            value={`${backlog}`}
+            delta={backlog === 0 ? 'clean' : 'pending'}
+            deltaType={backlog === 0 ? 'positive' : 'neutral'}
+            hint="events awaiting delivery"
+            icon={Layers}
+          />
+        )}
+        {can('integrations.view') && (
+          <StatTile
+            title="Delivery Failures"
+            value={`${failures}`}
+            delta={failures === 0 ? 'none' : 'attention'}
+            deltaType={failures === 0 ? 'positive' : 'negative'}
+            hint="webhooks, last 24h"
+            icon={ShieldAlert}
+          />
+        )}
       </div>
 
-      {/* Alert Feed Table */}
+      {/* Live alert feed (derived from real conditions) */}
       <Card className="border-border bg-card shadow-xs">
-        <CardHeader className="p-4 pb-3 border-b border-border/80">
+        <CardHeader className="p-4 pb-2.5 border-b border-border/80">
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="text-base font-semibold text-foreground">
-                Operational Event Feed
-              </CardTitle>
+              <CardTitle className="text-sm font-semibold text-foreground">Active Alerts</CardTitle>
               <CardDescription className="text-xs text-muted-foreground">
-                Recent security, network, and data consistency events.
+                Current reliability issues across infrastructure, devices, and delivery.
               </CardDescription>
             </div>
             <Badge variant="outline" className="text-xs font-mono">
-              {mockAlerts.length} Events Logged
+              {alerts.length} active
             </Badge>
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow className="border-border/80 bg-muted/20 text-xs">
-                <TableHead className="font-semibold">Severity</TableHead>
-                <TableHead className="font-semibold">Source</TableHead>
-                <TableHead className="font-semibold">Event</TableHead>
-                <TableHead className="font-semibold">Detail</TableHead>
-                <TableHead className="font-semibold">Status</TableHead>
-                <TableHead className="font-semibold text-right">Time</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {mockAlerts.map((alt) => (
-                <TableRow
-                  key={alt.id}
-                  className="border-border/40 hover:bg-muted/30 transition-colors text-sm"
-                >
-                  <TableCell className="py-3">
-                    <Badge variant="outline" className="text-[10px] font-mono">
-                      {alt.severity}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="py-3 font-mono text-xs text-primary font-semibold">
-                    {alt.source}
-                  </TableCell>
-                  <TableCell className="py-3 font-semibold text-foreground">{alt.title}</TableCell>
-                  <TableCell className="py-3 text-xs text-muted-foreground max-w-[320px]">
-                    {alt.detail}
-                  </TableCell>
-                  <TableCell className="py-3">
-                    <Badge
-                      variant="outline"
-                      className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px] font-semibold"
-                    >
-                      {alt.status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="py-3 text-right font-mono text-xs text-muted-foreground">
-                    {alt.timestamp}
-                  </TableCell>
-                </TableRow>
+          {alerts.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
+              <CheckCircle2 className="h-9 w-9 text-emerald-500" />
+              <div className="text-sm font-semibold text-foreground">All systems healthy</div>
+              <div className="text-xs text-muted-foreground">
+                {loading ? 'Checking…' : 'No active alerts. Infrastructure, terminals, and webhook delivery are nominal.'}
+              </div>
+            </div>
+          ) : (
+            <div className="divide-y divide-border/40">
+              {alerts.map((a, i) => (
+                <div key={i} className="flex items-start gap-3 px-4 py-3">
+                  <Badge variant="outline" className={`mt-0.5 text-[10px] font-semibold ${severityCls[a.severity]}`}>
+                    {a.severity}
+                  </Badge>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-foreground">{a.title}</span>
+                      <span className="font-mono text-[10px] text-muted-foreground">{a.source}</span>
+                    </div>
+                    <div className="text-xs text-muted-foreground">{a.detail}</div>
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className="shrink-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 text-[10px] font-semibold"
+                  >
+                    ACTIVE
+                  </Badge>
+                </div>
               ))}
-            </TableBody>
-          </Table>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

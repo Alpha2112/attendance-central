@@ -21,10 +21,11 @@ import {
   Info,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Can } from '@/components/can';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { MetricCard } from '@/components/ui/metric-card';
+import { StatTile } from '@/components/stat-tile';
 import {
   Table,
   TableBody,
@@ -418,10 +419,12 @@ export default function IntegrationsPage() {
             <RefreshCw className={`h-4 w-4 mr-1.5 ${refreshing ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
-          <Button size="sm" className="font-semibold shadow-xs" onClick={openCreate}>
-            <Plus className="h-4 w-4 mr-1.5" />
-            Register Subscription
-          </Button>
+          <Can perm="integrations.create">
+            <Button size="sm" className="font-semibold shadow-xs" onClick={openCreate}>
+              <Plus className="h-4 w-4 mr-1.5" />
+              Register Subscription
+            </Button>
+          </Can>
         </div>
       </div>
 
@@ -463,42 +466,38 @@ export default function IntegrationsPage() {
         </div>
       )}
 
-      {/* Metrics Row */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <MetricCard
+      {/* Metrics Row — compact, real outbox telemetry */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <StatTile
           title="Outbox State"
-          value={stats ? `${stats.backlog} Backlog` : '—'}
-          delta={stats && stats.backlog === 0 ? 'Published' : 'Pending'}
-          deltaType="positive"
-          deltaLabel="Transactional Safety"
-          subtext="No delayed webhook deliveries"
+          value={stats ? `${stats.backlog}` : '—'}
+          delta={stats ? (stats.backlog === 0 ? 'published' : 'pending') : undefined}
+          deltaType={stats && stats.backlog === 0 ? 'positive' : 'neutral'}
+          hint="backlog pending"
           icon={Send}
         />
-        <MetricCard
+        <StatTile
           title="Deliveries (24h)"
           value={stats ? stats.deliveries24h.toLocaleString() : '—'}
-          delta={`${stats?.activeEndpoints ?? 0} endpoints`}
-          deltaType="positive"
-          deltaLabel="Signed dispatches"
-          subtext="HMAC-SHA256 authenticated"
+          delta={stats ? `${stats.activeEndpoints} endpoint${stats.activeEndpoints === 1 ? '' : 's'}` : undefined}
+          deltaType="neutral"
+          hint="signed dispatches"
           icon={Sparkles}
         />
-        <MetricCard
-          title="Delivery Success Rate"
+        <StatTile
+          title="Success Rate"
           value={stats ? fmtPct(stats.successRate) : '—'}
-          delta="SLO > 99.9%"
-          deltaType="positive"
-          deltaLabel="Exponential backoff"
-          subtext="Retries on 5xx / 429"
+          delta={stats ? (stats.successRate >= 99 ? 'healthy' : 'degraded') : undefined}
+          deltaType={stats && stats.successRate >= 99 ? 'positive' : 'negative'}
+          hint="5xx / 429 retried"
           icon={CheckCircle2}
         />
-        <MetricCard
-          title="Avg Dispatch Latency"
+        <StatTile
+          title="Avg Latency"
           value={stats ? `${stats.avgLatencyMs}ms` : '—'}
-          delta={stats && stats.avgLatencyMs < 100 ? 'Sub-100ms' : 'Nominal'}
+          delta={stats ? (stats.avgLatencyMs < 100 ? 'sub-100ms' : 'nominal') : undefined}
           deltaType="positive"
-          deltaLabel="Fast Outbound"
-          subtext="Dedicated dispatcher pool"
+          hint="dispatcher pool"
           icon={Clock}
         />
       </div>

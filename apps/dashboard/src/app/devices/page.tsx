@@ -30,10 +30,11 @@ import {
   Pencil,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Can } from '@/components/can';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { MetricCard } from '@/components/ui/metric-card';
+import { StatTile } from '@/components/stat-tile';
 import {
   Table,
   TableBody,
@@ -591,45 +592,54 @@ export default function DevicesPage() {
             {isRefreshing ? 'Refreshing...' : 'Refresh Fleet'}
           </Button>
 
-          <Button size="sm" className="font-semibold shadow-xs" onClick={handleOpenRegister}>
-            <Plus className="h-4 w-4 mr-1.5" />
-            Register Device
-          </Button>
+          <Can perm="devices.create">
+            <Button size="sm" className="font-semibold shadow-xs" onClick={handleOpenRegister}>
+              <Plus className="h-4 w-4 mr-1.5" />
+              Register Device
+            </Button>
+          </Can>
         </div>
       </div>
 
-      {/* Metrics Summary Row */}
-      <div className="grid gap-4 md:grid-cols-3">
-        <MetricCard
-          title="Fleet Capacity"
-          value={`${devices.length}`}
-          delta="+50%"
-          deltaType="positive"
-          deltaLabel="Active Terminals"
-          subtext="Hikvision, ZKTeco, Suprema"
-          icon={Cpu}
-        />
-
-        <MetricCard
-          title="Terminal Availability"
-          value="100%"
-          delta="Online"
-          deltaType="positive"
-          deltaLabel="0 Offline Faults"
-          subtext="Healthy connection status"
-          icon={CheckCircle2}
-        />
-
-        <MetricCard
-          title="Polling Frequency"
-          value="4.0s"
-          delta="Continuous"
-          deltaType="positive"
-          deltaLabel="Background Tick"
-          subtext="Automatic ISAPI sync loop"
-          icon={Clock}
-        />
-      </div>
+      {/* Metrics Summary Row — compact, real device telemetry */}
+      {(() => {
+        const total = devices.length;
+        const online = devices.filter((d) => d.status === 'ONLINE').length;
+        const offline = total - online;
+        const availability = total > 0 ? Math.round((online / total) * 100) : 100;
+        const vendors = [...new Set(devices.map((d) => d.vendor).filter(Boolean))];
+        const vendorLabel = vendors
+          .map((v) => v.charAt(0) + v.slice(1).toLowerCase())
+          .join(', ');
+        return (
+          <div className="grid gap-3 sm:grid-cols-3">
+            <StatTile
+              title="Total Terminals"
+              value={`${total}`}
+              delta={vendors.length ? `${vendors.length} vendor${vendors.length > 1 ? 's' : ''}` : undefined}
+              deltaType="neutral"
+              hint={vendorLabel || 'registered'}
+              icon={Cpu}
+            />
+            <StatTile
+              title="Terminal Availability"
+              value={`${availability}%`}
+              delta={`${online} online`}
+              deltaType="positive"
+              hint="live & reachable"
+              icon={CheckCircle2}
+            />
+            <StatTile
+              title="Offline Terminals"
+              value={`${offline}`}
+              delta={offline > 0 ? 'attention' : 'all healthy'}
+              deltaType={offline > 0 ? 'negative' : 'positive'}
+              hint={offline > 0 ? 'need a check' : 'no faults'}
+              icon={AlertTriangle}
+            />
+          </div>
+        );
+      })()}
 
       {/* Filter Bar */}
       <Card className="border-border bg-card shadow-xs">

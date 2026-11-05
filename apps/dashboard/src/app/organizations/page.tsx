@@ -15,10 +15,11 @@ import {
   Link2,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Can } from '@/components/can';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { MetricCard } from '@/components/ui/metric-card';
+import { StatTile } from '@/components/stat-tile';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import {
   Table,
@@ -240,16 +241,31 @@ export default function OrganizationsPage() {
         </Button>
       </div>
 
-      {/* Metrics */}
-      <div className="grid grid-cols-2 gap-3 sm:gap-4">
-        <MetricCard title="Tenants" value={String(tenants.length)} icon={Boxes} subtext="Registered tenants" />
-        <MetricCard
-          title="Organizations"
-          value={String(orgs.length)}
-          icon={Building2}
-          subtext="Registered organizations"
-        />
-      </div>
+      {/* Metrics — compact, real registry counts */}
+      {(() => {
+        const activeTenants = tenants.filter((t) => (t.status || '').toUpperCase() === 'ACTIVE').length;
+        const assignedOrgs = orgs.filter((o) => o.tenantId != null).length;
+        return (
+          <div className="grid grid-cols-2 gap-3">
+            <StatTile
+              title="Tenants"
+              value={String(tenants.length)}
+              delta={tenants.length ? `${activeTenants} active` : undefined}
+              deltaType="positive"
+              hint="registered"
+              icon={Boxes}
+            />
+            <StatTile
+              title="Organizations"
+              value={String(orgs.length)}
+              delta={orgs.length ? `${assignedOrgs} assigned` : undefined}
+              deltaType="neutral"
+              hint="registered"
+              icon={Building2}
+            />
+          </div>
+        );
+      })()}
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as Kind)}>
         <TabsList>
@@ -278,9 +294,11 @@ export default function OrganizationsPage() {
                       className="h-8 pl-8 text-xs w-44"
                     />
                   </div>
-                  <Button size="sm" className="h-8 text-xs font-semibold" onClick={() => openCreate('tenant')}>
-                    <Plus className="h-3.5 w-3.5 mr-1" /> Register Tenant
-                  </Button>
+                  <Can perm="tenants.create">
+                    <Button size="sm" className="h-8 text-xs font-semibold" onClick={() => openCreate('tenant')}>
+                      <Plus className="h-3.5 w-3.5 mr-1" /> Register Tenant
+                    </Button>
+                  </Can>
                 </div>
               </div>
             </CardHeader>
@@ -357,9 +375,11 @@ export default function OrganizationsPage() {
                       className="h-8 pl-8 text-xs w-48"
                     />
                   </div>
-                  <Button size="sm" className="h-8 text-xs font-semibold" onClick={() => openCreate('org')}>
-                    <Plus className="h-3.5 w-3.5 mr-1" /> Register Organization
-                  </Button>
+                  <Can perm="organizations.create">
+                    <Button size="sm" className="h-8 text-xs font-semibold" onClick={() => openCreate('org')}>
+                      <Plus className="h-3.5 w-3.5 mr-1" /> Register Organization
+                    </Button>
+                  </Can>
                 </div>
               </div>
             </CardHeader>

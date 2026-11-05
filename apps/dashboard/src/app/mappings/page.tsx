@@ -21,10 +21,11 @@ import {
   ToggleRight,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Can } from '@/components/can';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { MetricCard } from '@/components/ui/metric-card';
+import { StatTile } from '@/components/stat-tile';
 import {
   Table,
   TableBody,
@@ -412,45 +413,56 @@ export default function MappingsPage() {
             {isRefreshing ? 'Refreshing...' : 'Refresh Mappings'}
           </Button>
 
-          <Button size="sm" className="font-semibold shadow-xs" onClick={handleOpenCreate}>
-            <Plus className="h-4 w-4 mr-1.5" />
-            Map Employee
-          </Button>
+          <Can perm="mappings.create">
+            <Button size="sm" className="font-semibold shadow-xs" onClick={handleOpenCreate}>
+              <Plus className="h-4 w-4 mr-1.5" />
+              Map Employee
+            </Button>
+          </Can>
         </div>
       </div>
 
-      {/* Metrics Summary Row */}
-      <div className="grid gap-4 md:grid-cols-3">
-        <MetricCard
-          title="Total Mappings"
-          value={`${mappings.length}`}
-          delta="+100%"
-          deltaType="positive"
-          deltaLabel="Active & Validated"
-          subtext="amare (EMP-1001) mapped on Hikvision"
-          icon={Link2}
-        />
-
-        <MetricCard
-          title="Resolution Ratio"
-          value="100%"
-          delta="Resolved"
-          deltaType="positive"
-          deltaLabel="0 Unresolved Leaks"
-          subtext="All hardware punches match HRMS"
-          icon={CheckCircle2}
-        />
-
-        <MetricCard
-          title="Hardware Coverage"
-          value={`${devices.length} Devices`}
-          delta="Configured"
-          deltaType="positive"
-          deltaLabel="Hikvision, ZKTeco, Suprema"
-          subtext="Multi-device identity binding"
-          icon={Cpu}
-        />
-      </div>
+      {/* Metrics Summary Row — compact, real identity-resolution telemetry */}
+      {(() => {
+        const total = mappings.length;
+        const active = mappings.filter((m) => m.status === 'ACTIVE').length;
+        const ratio = total > 0 ? Math.round((active / total) * 100) : 100;
+        const mappedDevices = new Set(mappings.map((m) => m.deviceCode).filter(Boolean)).size;
+        const vendors = [
+          ...new Set(devices.map((d) => (d.vendor || '').toUpperCase()).filter(Boolean)),
+        ];
+        const vendorLabel = vendors
+          .map((v) => v.charAt(0) + v.slice(1).toLowerCase())
+          .join(', ');
+        return (
+          <div className="grid gap-3 sm:grid-cols-3">
+            <StatTile
+              title="Total Mappings"
+              value={`${total}`}
+              delta={`${active} active`}
+              deltaType="positive"
+              hint="employee ↔ device"
+              icon={Link2}
+            />
+            <StatTile
+              title="Resolution Ratio"
+              value={`${ratio}%`}
+              delta={ratio === 100 ? 'resolved' : 'partial'}
+              deltaType={ratio === 100 ? 'positive' : 'neutral'}
+              hint="active / total"
+              icon={CheckCircle2}
+            />
+            <StatTile
+              title="Hardware Coverage"
+              value={`${devices.length}`}
+              delta={mappedDevices > 0 ? `${mappedDevices} mapped` : undefined}
+              deltaType="neutral"
+              hint={vendorLabel || 'devices'}
+              icon={Cpu}
+            />
+          </div>
+        );
+      })()}
 
       {/* Filter Bar */}
       <Card className="border-border bg-card shadow-xs">

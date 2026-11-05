@@ -12,6 +12,9 @@ export const ApiConfigSchema = z.object({
     .default('*')
     .transform((val) => val.split(',').map((s) => s.trim())),
   API_GLOBAL_PREFIX: z.string().default('api/v1'),
+  // Auth / RBAC — JWT signing. Override JWT_SECRET in every real environment.
+  JWT_SECRET: z.string().default('dev-insecure-change-me-attendance-jwt-secret'),
+  JWT_EXPIRES_IN_SECONDS: z.coerce.number().int().positive().default(43200), // 12h
 });
 
 export type ApiConfig = z.infer<typeof ApiConfigSchema>;

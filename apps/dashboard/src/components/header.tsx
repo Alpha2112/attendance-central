@@ -1,11 +1,12 @@
 'use client';
 
 import React from 'react';
-import { Bell, ArrowUpRight, Search, Sun, Moon, Laptop } from 'lucide-react';
+import { Bell, ArrowUpRight, Search, Sun, Moon, Laptop, LogOut } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Avatar, AvatarFallback } from './ui/avatar';
 import { useTheme } from './theme-provider';
+import { useAuth } from '@/lib/auth';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,8 +14,19 @@ import {
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 
+function userInitials(name: string): string {
+  return (
+    name
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((p) => p[0]?.toUpperCase() || '')
+      .join('') || 'U'
+  );
+}
+
 export function Header() {
   const { setTheme, resolvedTheme } = useTheme();
+  const { user, logout } = useAuth();
 
   return (
     <header className="h-14 border-b border-border bg-card/80 backdrop-blur-md px-6 flex items-center justify-between sticky top-0 z-20 transition-colors">
@@ -98,17 +110,37 @@ export function Header() {
           <Bell className="w-4 h-4" />
         </Button>
 
-        <div className="flex items-center gap-2.5 pl-3 border-l border-border">
-          <Avatar className="h-8 w-8 border border-border">
-            <AvatarFallback className="bg-primary/10 text-primary font-bold text-xs">
-              AD
-            </AvatarFallback>
-          </Avatar>
-          <div className="hidden lg:block text-left">
-            <p className="text-xs font-semibold text-foreground leading-tight">Architect / Admin</p>
-            <p className="text-[10px] text-muted-foreground">HQ Control Plane</p>
-          </div>
-        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="flex items-center gap-2.5 pl-3 border-l border-border cursor-pointer">
+              <Avatar className="h-8 w-8 border border-border">
+                <AvatarFallback className="bg-primary/10 text-primary font-bold text-xs">
+                  {user ? userInitials(user.fullName) : 'U'}
+                </AvatarFallback>
+              </Avatar>
+              <div className="hidden lg:block text-left">
+                <p className="text-xs font-semibold text-foreground leading-tight">
+                  {user?.fullName ?? 'Account'}
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  {user?.roles?.[0] ?? 'Signed in'}
+                </p>
+              </div>
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="text-xs w-56">
+            {user && (
+              <div className="px-2 py-1.5 border-b border-border/60 mb-1">
+                <p className="text-xs font-semibold text-foreground">{user.fullName}</p>
+                <p className="text-[10px] text-muted-foreground">{user.email}</p>
+              </div>
+            )}
+            <DropdownMenuItem onClick={logout} className="cursor-pointer gap-2 text-red-500">
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Sign out</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </header>
   );

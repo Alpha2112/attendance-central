@@ -14,6 +14,7 @@ import { DevicesService, type DeviceProbeResult } from './devices.service.js';
 import { CreateDeviceApiDto } from './dto/create-device.dto.js';
 import { UpdateDeviceApiDto } from './dto/update-device.dto.js';
 import { type DeviceEntity } from '@attendance/database';
+import { RequirePermissions } from '../auth/decorators.js';
 
 @ApiTags('Device Fleet Management')
 @Controller(['devices', 'api/v1/devices'])
@@ -21,6 +22,7 @@ export class DevicesController {
   constructor(@Inject(DevicesService) private readonly devicesService: DevicesService) {}
 
   @Get()
+  @RequirePermissions('devices.view')
   @ApiOperation({ summary: 'List all registered hardware devices' })
   @ApiResponse({ status: 200, description: 'List of devices in fleet' })
   async findAll(): Promise<DeviceEntity[]> {
@@ -28,6 +30,7 @@ export class DevicesController {
   }
 
   @Get(':id')
+  @RequirePermissions('devices.view')
   @ApiOperation({ summary: 'Get device by ID' })
   @ApiResponse({ status: 200, description: 'Device details' })
   @ApiResponse({ status: 404, description: 'Device not found' })
@@ -36,6 +39,7 @@ export class DevicesController {
   }
 
   @Post()
+  @RequirePermissions('devices.create')
   @ApiOperation({ summary: 'Register a new hardware biometric device' })
   @ApiResponse({ status: 201, description: 'Device successfully registered' })
   async create(@Body() dto: CreateDeviceApiDto): Promise<DeviceEntity> {
@@ -43,6 +47,7 @@ export class DevicesController {
   }
 
   @Patch(':id')
+  @RequirePermissions('devices.edit')
   @ApiOperation({ summary: 'Update device parameters or credentials' })
   @ApiResponse({ status: 200, description: 'Device updated successfully' })
   async update(
@@ -53,6 +58,7 @@ export class DevicesController {
   }
 
   @Delete(':id')
+  @RequirePermissions('devices.delete')
   @ApiOperation({ summary: 'Deregister/remove a device' })
   @ApiResponse({ status: 200, description: 'Device deleted' })
   async delete(@Param('id', ParseIntPipe) id: number): Promise<{ success: boolean }> {
@@ -61,6 +67,7 @@ export class DevicesController {
   }
 
   @Post('probe')
+  @RequirePermissions('devices.test')
   @ApiOperation({ summary: 'Live connection probe test with dynamic credentials' })
   @ApiResponse({ status: 200, description: 'Probe result' })
   async probeDynamic(@Body() dto: CreateDeviceApiDto): Promise<DeviceProbeResult> {
@@ -68,6 +75,7 @@ export class DevicesController {
   }
 
   @Post(':id/probe')
+  @RequirePermissions('devices.test')
   @ApiOperation({ summary: 'Live connection probe test for a registered device' })
   @ApiResponse({ status: 200, description: 'Probe result and updated status' })
   async probeRegistered(@Param('id', ParseIntPipe) id: number): Promise<DeviceProbeResult> {

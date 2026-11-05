@@ -14,6 +14,7 @@ import {
 import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { PunchesService, type PunchLogItem } from './punches.service.js';
 import { PunchQueryDto, IngestPunchDto } from './dto/punch-query.dto.js';
+import { RequirePermissions, Public } from '../auth/decorators.js';
 
 @ApiTags('Attendance & Punch Logs')
 @Controller(['punches', 'api/v1/punches'])
@@ -21,6 +22,7 @@ export class PunchesController {
   constructor(@Inject(PunchesService) private readonly punchesService: PunchesService) {}
 
   @Get()
+  @RequirePermissions('punches.view')
   @ApiOperation({ summary: 'Get historical attendance punch logs with keyset pagination' })
   @ApiResponse({ status: 200, description: 'Paginated attendance punch logs' })
   public async getHistoricalLogs(@Query() query: PunchQueryDto): Promise<{
@@ -32,6 +34,7 @@ export class PunchesController {
   }
 
   @Get('live')
+  @RequirePermissions('punches.view')
   @ApiOperation({ summary: 'Get recent real-time normalized punch stream' })
   @ApiResponse({ status: 200, description: 'Recent normalized punch events' })
   public async getLiveFeed(@Query('limit') limit?: number): Promise<PunchLogItem[]> {
@@ -39,6 +42,7 @@ export class PunchesController {
   }
 
   @Post('sync')
+  @RequirePermissions('punches.sync')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Sync all registered pull-based (Hikvision) terminals' })
   @ApiResponse({ status: 200, description: 'Aggregate sync summary across pull terminals' })
@@ -47,6 +51,7 @@ export class PunchesController {
   }
 
   @Post('sync/:deviceId')
+  @RequirePermissions('punches.sync')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Sync real hardware events from a specific physical terminal' })
   @ApiParam({ name: 'deviceId', description: 'Device ID or Device Code' })
@@ -56,6 +61,7 @@ export class PunchesController {
   }
 
   @Post('simulate')
+  @RequirePermissions('punches.simulate')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Simulate/Ingest a punch event for test validation' })
   @ApiResponse({ status: 201, description: 'Created normalized punch log' })
@@ -64,6 +70,7 @@ export class PunchesController {
   }
 
   @Post('push/hikvision')
+  @Public()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'HTTP Push Receiver for Hikvision Alarm Center / Listening Host' })
   @ApiResponse({ status: 200, description: 'Acknowledged push event' })
@@ -72,6 +79,7 @@ export class PunchesController {
   }
 
   @Post('purge')
+  @RequirePermissions('punches.purge')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Purge mock/simulated punch logs and resync' })
   @ApiResponse({ status: 200, description: 'Purged all logs' })
@@ -80,6 +88,7 @@ export class PunchesController {
   }
 
   @Delete(':id')
+  @RequirePermissions('punches.delete')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Delete a single punch log record' })
   @ApiResponse({ status: 200, description: 'Deleted punch log' })
@@ -88,6 +97,7 @@ export class PunchesController {
   }
 
   @Post(':id/reemit')
+  @RequirePermissions('punches.sync')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Re-emit a punch log event to Kafka topic' })
   @ApiResponse({ status: 200, description: 'Re-emitted event to Kafka' })

@@ -2,8 +2,10 @@ import { Controller, Get, Res, HttpStatus, Inject } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { type FastifyReply } from 'fastify';
 import { HealthService, type LivenessReport } from './health.service.js';
+import { Public } from '../auth/decorators.js';
 
 @ApiTags('Health & Telemetry')
+@Public()
 @Controller(['health', 'api/v1/health'])
 export class HealthController {
   constructor(@Inject(HealthService) private readonly healthService: HealthService) {}

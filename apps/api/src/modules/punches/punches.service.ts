@@ -546,6 +546,11 @@ export class PunchesService implements OnModuleInit, OnModuleDestroy {
       params.push(s, s, s, s, s);
     }
 
+    // Snapshot the filter clause (without the keyset cursor) so we can return an
+    // accurate total count of all matching rows, not just the current page.
+    const filterConditions = [...conditions];
+    const filterParams = [...params];
+
     if (query.cursorTime && query.cursorId) {
       conditions.push('(a.punch_time_utc < ? OR (a.punch_time_utc = ? AND a.id < ?))');
       params.push(query.cursorTime, query.cursorTime, query.cursorId);
@@ -620,9 +625,25 @@ export class PunchesService implements OnModuleInit, OnModuleDestroy {
       };
     }
 
+    // Accurate total of all rows matching the filters (ignores the keyset cursor).
+    let total = items.length;
+    try {
+      const countRows = await this.db.query<any[]>(
+        `SELECT COUNT(*) AS n
+         FROM attendance_logs a
+         LEFT JOIN devices d ON d.id = a.device_id
+         LEFT JOIN device_employee_mappings m ON (m.device_id = a.device_id AND m.external_employee_id = a.employee_id)
+         WHERE ${filterConditions.join(' AND ')}`,
+        filterParams,
+      );
+      total = Number(countRows[0]?.['n'] ?? items.length);
+    } catch {
+      /* fall back to page length */
+    }
+
     return {
       items,
-      total: items.length,
+      total,
       nextCursor,
     };
   }

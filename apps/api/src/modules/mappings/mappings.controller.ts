@@ -17,6 +17,7 @@ import { MappingsService } from './mappings.service.js';
 import { CreateMappingApiDto } from './dto/create-mapping.dto.js';
 import { UpdateMappingApiDto } from './dto/update-mapping.dto.js';
 import { type DeviceEmployeeMappingWithDevice } from '@attendance/database';
+import { RequirePermissions } from '../auth/decorators.js';
 
 @ApiTags('Biometric Identity Mappings')
 @Controller(['mappings', 'api/v1/mappings'])
@@ -24,6 +25,7 @@ export class MappingsController {
   constructor(@Inject(MappingsService) private readonly mappingsService: MappingsService) {}
 
   @Get()
+  @RequirePermissions('mappings.view')
   @ApiOperation({ summary: 'List all biometric employee-to-device mappings' })
   @ApiQuery({ name: 'org', required: false, description: 'Organization code or numeric ID' })
   @ApiResponse({ status: 200, description: 'List of device employee mappings' })
@@ -34,6 +36,7 @@ export class MappingsController {
   }
 
   @Get(':id')
+  @RequirePermissions('mappings.view')
   @ApiOperation({ summary: 'Get mapping details by numeric ID' })
   @ApiParam({ name: 'id', description: 'Mapping ID' })
   @ApiResponse({ status: 200, description: 'Mapping entity with terminal metadata' })
@@ -44,6 +47,7 @@ export class MappingsController {
   }
 
   @Post()
+  @RequirePermissions('mappings.create')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create or update an employee identity mapping' })
   @ApiResponse({ status: 201, description: 'Created/Updated mapping entity' })
@@ -54,6 +58,7 @@ export class MappingsController {
   }
 
   @Patch(':id')
+  @RequirePermissions('mappings.edit')
   @ApiOperation({ summary: 'Update an existing employee identity mapping' })
   @ApiParam({ name: 'id', description: 'Mapping ID' })
   @ApiResponse({ status: 200, description: 'Updated mapping entity' })
@@ -65,6 +70,7 @@ export class MappingsController {
   }
 
   @Delete(':id')
+  @RequirePermissions('mappings.delete')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Delete / Unmap an employee from a device' })
   @ApiParam({ name: 'id', description: 'Mapping ID' })
