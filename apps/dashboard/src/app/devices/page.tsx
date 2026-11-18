@@ -694,8 +694,9 @@ export default function DevicesPage() {
             </div>
           </div>
           <CardDescription className="text-xs">
-            Direct telemetry, live ping probes, and communication controls per terminal. Suprema
-            status auto-updates as the terminal connects or disconnects.
+            Direct telemetry, live ping probes, and communication controls per terminal. Status
+            auto-updates: Suprema on connect/disconnect events, Hikvision &amp; other terminals via
+            periodic reachability probes.
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
