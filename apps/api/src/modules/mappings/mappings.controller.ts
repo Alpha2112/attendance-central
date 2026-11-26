@@ -16,6 +16,12 @@ import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/
 import { MappingsService } from './mappings.service.js';
 import { CreateMappingApiDto } from './dto/create-mapping.dto.js';
 import { UpdateMappingApiDto } from './dto/update-mapping.dto.js';
+import {
+  BulkValidateDto,
+  BulkImportDto,
+  type BulkValidateResult,
+  type BulkImportResult,
+} from './dto/bulk-mapping.dto.js';
 import { type DeviceEmployeeMappingWithDevice } from '@attendance/database';
 import { RequirePermissions } from '../auth/decorators.js';
 
@@ -55,6 +61,24 @@ export class MappingsController {
     @Body() dto: CreateMappingApiDto,
   ): Promise<DeviceEmployeeMappingWithDevice> {
     return this.mappingsService.create(dto);
+  }
+
+  @Post('bulk/validate')
+  @RequirePermissions('mappings.create')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Validate a batch of employee mappings without writing' })
+  @ApiResponse({ status: 200, description: 'Per-row validation and summary' })
+  public async validateBulk(@Body() dto: BulkValidateDto): Promise<BulkValidateResult> {
+    return this.mappingsService.validateBulk(dto?.rows ?? [], dto?.defaults);
+  }
+
+  @Post('bulk/import')
+  @RequirePermissions('mappings.create')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Import a validated batch of employee mappings (idempotent upsert)' })
+  @ApiResponse({ status: 200, description: 'Per-row import results and summary' })
+  public async importBulk(@Body() dto: BulkImportDto): Promise<BulkImportResult> {
+    return this.mappingsService.importBulk(dto?.rows ?? [], dto?.defaults);
   }
 
   @Patch(':id')

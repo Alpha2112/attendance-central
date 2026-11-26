@@ -26,11 +26,26 @@ export class OrganizationRepository {
 
   public async create(dto: CreateOrganizationDto): Promise<number> {
     const result = await this.client.query<ResultSetHeader>(
-      `INSERT INTO organizations (tenant_id, code, name, timezone, status)
-       VALUES (?, ?, ?, ?, ?)`,
-      [dto.tenantId || null, dto.code, dto.name, dto.timezone || 'UTC', dto.status || 'ACTIVE'],
+      `INSERT INTO organizations (tenant_id, parent_id, code, name, timezone, status)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        dto.tenantId ?? null,
+        dto.parentId ?? null,
+        dto.code,
+        dto.name,
+        dto.timezone || 'UTC',
+        dto.status || 'ACTIVE',
+      ],
     );
     return result.insertId;
+  }
+
+  /** Direct children of an organization (one level down). */
+  public async listChildren(parentId: number): Promise<OrganizationEntity[]> {
+    return this.client.query<OrganizationEntity[]>(
+      'SELECT * FROM organizations WHERE parent_id = ? ORDER BY name ASC',
+      [parentId],
+    );
   }
 
   public async list(): Promise<OrganizationEntity[]> {
@@ -48,6 +63,7 @@ export class OrganizationRepository {
     id: number,
     dto: {
       tenantId?: number | null;
+      parentId?: number | null;
       code?: string;
       name?: string;
       timezone?: string;
@@ -59,6 +75,10 @@ export class OrganizationRepository {
     if (dto.tenantId !== undefined) {
       sets.push('tenant_id = ?');
       params.push(dto.tenantId || null);
+    }
+    if (dto.parentId !== undefined) {
+      sets.push('parent_id = ?');
+      params.push(dto.parentId ?? null);
     }
     if (dto.code !== undefined) {
       sets.push('code = ?');

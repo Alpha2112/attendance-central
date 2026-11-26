@@ -219,7 +219,9 @@ export class IntegrationsService {
       targetType: String(row['target_type']),
       endpointUrl: String(row['endpoint_url']),
       tenantId: row['payload_tenant_id'] ? String(row['payload_tenant_id']) : null,
-      organizationId: row['payload_organization_id'] ? String(row['payload_organization_id']) : null,
+      organizationId: row['payload_organization_id']
+        ? String(row['payload_organization_id'])
+        : null,
       authType: String(row['auth_type']),
       status: String(row['status']),
       secretReference: row['secret_reference'] ? String(row['secret_reference']) : null,
@@ -272,7 +274,16 @@ export class IntegrationsService {
     if (dto.branchId !== undefined && dto.branchId !== null && String(dto.branchId) !== '') {
       rules['branchId'] = dto.branchId;
     }
-    if (dto.deviceCode) rules['deviceCode'] = dto.deviceCode;
+    if (dto.deviceCode) {
+      // Accept one code or a comma-separated list → store a single string or an
+      // array. The dispatcher's matchesFilter() treats string|array uniformly.
+      const codes = String(dto.deviceCode)
+        .split(',')
+        .map((c) => c.trim())
+        .filter(Boolean);
+      if (codes.length === 1) rules['deviceCode'] = codes[0];
+      else if (codes.length > 1) rules['deviceCode'] = codes;
+    }
     if (dto.punchTypes) {
       const types = dto.punchTypes
         .split(',')
@@ -336,7 +347,8 @@ export class IntegrationsService {
     if (dto.targetType !== undefined) setCol('target_type', dto.targetType);
     if (dto.endpointUrl !== undefined) setCol('endpoint_url', dto.endpointUrl);
     if (dto.tenantId !== undefined) setCol('payload_tenant_id', dto.tenantId?.trim() || null);
-    if (dto.organizationId !== undefined) setCol('payload_organization_id', dto.organizationId?.trim() || null);
+    if (dto.organizationId !== undefined)
+      setCol('payload_organization_id', dto.organizationId?.trim() || null);
     if (dto.authType !== undefined) setCol('auth_type', dto.authType);
     if (dto.status !== undefined) setCol('status', dto.status);
     if (dto.retryLimit !== undefined) setCol('retry_limit', dto.retryLimit);

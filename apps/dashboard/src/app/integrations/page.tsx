@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Send,
   Plus,
@@ -19,6 +19,7 @@ import {
   AlertTriangle,
   KeyRound,
   Info,
+  ChevronDown,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Can } from '@/components/can';
@@ -39,7 +40,10 @@ import {
 function InfoTip({ text, align = 'left' }: { text: string; align?: 'left' | 'right' }) {
   return (
     <span className="group relative inline-flex align-middle">
-      <Info className="h-3.5 w-3.5 text-muted-foreground hover:text-primary cursor-help" tabIndex={0} />
+      <Info
+        className="h-3.5 w-3.5 text-muted-foreground hover:text-primary cursor-help"
+        tabIndex={0}
+      />
       <span
         role="tooltip"
         className={`pointer-events-none absolute top-full z-50 mt-1.5 w-64 max-w-[min(16rem,calc(100vw-2rem))] rounded-md border border-border bg-popover px-2.5 py-1.5 text-[11px] font-normal leading-relaxed text-popover-foreground opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 ${align === 'right' ? 'right-0' : 'left-0'}`}
@@ -63,7 +67,9 @@ function LabelWithInfo({
   align?: 'left' | 'right';
 }) {
   return (
-    <label className={`${className ?? 'text-xs font-semibold text-foreground'} mb-1 flex items-center gap-1`}>
+    <label
+      className={`${className ?? 'text-xs font-semibold text-foreground'} mb-1 flex items-center gap-1`}
+    >
       {label}
       <InfoTip text={info} align={align} />
     </label>
@@ -159,6 +165,284 @@ function CopyButton({ value, className = '' }: { value: string; className?: stri
   );
 }
 
+/**
+ * Right-side slide-over drawer: scrim-to-dismiss, Escape to close, body scroll
+ * lock while open. The panel is a flex column so callers can place a scrollable
+ * body and a sticky footer inside `children`.
+ */
+function Drawer({
+  open,
+  onClose,
+  title,
+  subtitle,
+  icon: Icon,
+  width = 'md',
+  children,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  subtitle?: string;
+  icon?: React.ComponentType<{ className?: string }>;
+  width?: 'md' | 'lg' | 'xl';
+  children: React.ReactNode;
+}) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [open, onClose]);
+
+  if (!open) return null;
+  const w = width === 'xl' ? 'max-w-2xl' : width === 'lg' ? 'max-w-lg' : 'max-w-md';
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <div
+        className="absolute inset-0 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className={`relative h-full w-full ${w} bg-card border-l border-border shadow-2xl flex flex-col animate-in slide-in-from-right-[100%] duration-300 ease-out`}
+      >
+        <div className="p-4 border-b border-border/60 flex items-center justify-between bg-muted/20 shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0">
+            {Icon && (
+              <div className="p-2 rounded-lg bg-primary/10 text-primary border border-primary/20 shrink-0">
+                <Icon className="h-5 w-5" />
+              </div>
+            )}
+            <div className="min-w-0">
+              <h2 className="text-sm font-bold text-foreground truncate">{title}</h2>
+              {subtitle && <p className="text-[11px] text-muted-foreground">{subtitle}</p>}
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="flex flex-1 min-h-0 flex-col">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Chip-summary dropdown multi-select for device codes. Works on a comma-separated
+ * string value so the surrounding form/edit logic stays unchanged (the backend
+ * splits the CSV into an array and the dispatcher matches string|array alike).
+ */
+function DeviceMultiSelect({
+  devices,
+  value,
+  onChange,
+}: {
+  devices: Array<{ code: string; name: string }>;
+  value: string;
+  onChange: (csv: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [dropUp, setDropUp] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) {
+      setQuery('');
+      return;
+    }
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const selected = value
+    ? value
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : [];
+  const setSelected = (codes: string[]) => onChange(codes.join(','));
+  const toggle = (code: string) =>
+    setSelected(selected.includes(code) ? selected.filter((c) => c !== code) : [...selected, code]);
+  const unknownSelected = selected.filter((c) => !devices.some((d) => d.code === c));
+
+  const q = query.trim().toLowerCase();
+  const shown = q
+    ? devices.filter((d) => d.code.toLowerCase().includes(q) || d.name.toLowerCase().includes(q))
+    : devices;
+  // Select-all targets the currently shown (filtered) devices, merged with the
+  // existing selection so a filtered "select" never drops other picks.
+  const selectAllShown = () =>
+    setSelected(Array.from(new Set([...selected, ...shown.map((d) => d.code)])));
+
+  // Flip the panel upward when there isn't enough room below (e.g. the field is
+  // near the bottom of the side drawer) so the list is never clipped.
+  const openMenu = () => {
+    if (!open && ref.current) {
+      const r = ref.current.getBoundingClientRect();
+      setDropUp(window.innerHeight - r.bottom < 320);
+    }
+    setOpen((o) => !o);
+  };
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={openMenu}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className="w-full min-h-9 px-2 py-1 rounded-md border border-border bg-background text-sm flex items-center gap-1.5"
+      >
+        <div className="flex-1 flex items-center gap-1 flex-wrap min-w-0 text-left">
+          {selected.length === 0 ? (
+            <span className="text-muted-foreground">All devices</span>
+          ) : (
+            <>
+              {selected.slice(0, 3).map((c) => (
+                <span
+                  key={c}
+                  className="inline-flex items-center gap-1 rounded bg-primary/10 text-primary px-1.5 py-0.5 text-[11px] font-mono"
+                >
+                  {c}
+                  <X
+                    className="h-2.5 w-2.5 cursor-pointer hover:text-rose-500"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggle(c);
+                    }}
+                  />
+                </span>
+              ))}
+              {selected.length > 3 && (
+                <span className="text-[11px] text-muted-foreground">
+                  +{selected.length - 3} more
+                </span>
+              )}
+            </>
+          )}
+        </div>
+        <ChevronDown
+          className={`h-4 w-4 text-muted-foreground shrink-0 transition-transform ${
+            open ? 'rotate-180' : ''
+          }`}
+        />
+      </button>
+      {open && (
+        <div
+          className={`absolute z-50 w-full rounded-md border border-border bg-popover text-popover-foreground shadow-lg ${
+            dropUp ? 'bottom-full mb-1' : 'top-full mt-1'
+          }`}
+        >
+          {/* Search */}
+          <div className="p-1.5 border-b border-border">
+            <input
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search devices…"
+              className="w-full h-7 px-2 rounded border border-input bg-background text-[11px] focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+          </div>
+          <div className="flex items-center justify-between px-2 py-1.5 border-b border-border text-[10px] text-muted-foreground">
+            <span>
+              {selected.length} selected{q ? ` · ${shown.length} shown` : ''}
+            </span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="hover:text-foreground font-medium"
+                onClick={selectAllShown}
+              >
+                {q ? 'Select shown' : 'Select all'}
+              </button>
+              <button
+                type="button"
+                className="hover:text-foreground font-medium"
+                onClick={() => setSelected([])}
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+          <div className="max-h-56 overflow-auto py-1">
+            {devices.length === 0 && unknownSelected.length === 0 ? (
+              <div className="p-2 text-[11px] text-muted-foreground">No devices registered.</div>
+            ) : shown.length === 0 &&
+              unknownSelected.filter((c) => c.toLowerCase().includes(q)).length === 0 ? (
+              <div className="p-2 text-[11px] text-muted-foreground">
+                No devices match &ldquo;{query}&rdquo;.
+              </div>
+            ) : (
+              <>
+                {unknownSelected
+                  .filter((c) => !q || c.toLowerCase().includes(q))
+                  .map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => toggle(c)}
+                      className="w-full flex items-center gap-2 px-2 py-1.5 text-[11px] hover:bg-accent text-left"
+                    >
+                      <span className="h-3.5 w-3.5 rounded border bg-primary border-primary text-primary-foreground flex items-center justify-center shrink-0">
+                        <Check className="h-2.5 w-2.5" />
+                      </span>
+                      <span className="font-mono text-foreground">{c}</span>
+                      <span className="text-muted-foreground">(not in fleet)</span>
+                    </button>
+                  ))}
+                {shown.map((d) => {
+                  const on = selected.includes(d.code);
+                  return (
+                    <button
+                      key={d.code}
+                      type="button"
+                      onClick={() => toggle(d.code)}
+                      className="w-full flex items-center gap-2 px-2 py-1.5 text-[11px] hover:bg-accent text-left"
+                    >
+                      <span
+                        className={`h-3.5 w-3.5 rounded border flex items-center justify-center shrink-0 ${
+                          on ? 'bg-primary border-primary text-primary-foreground' : 'border-input'
+                        }`}
+                      >
+                        {on && <Check className="h-2.5 w-2.5" />}
+                      </span>
+                      <span className="font-mono text-foreground">{d.code}</span>
+                      {d.name && <span className="text-muted-foreground truncate">{d.name}</span>}
+                    </button>
+                  );
+                })}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const EMPTY_FORM = {
   name: '',
   endpointUrl: '',
@@ -185,6 +469,13 @@ export default function IntegrationsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
+  // Transient success/error toast (top-right).
+  const [toast, setToast] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const showToast = (text: string, type: 'success' | 'error' = 'success') => {
+    setToast({ text, type });
+    window.setTimeout(() => setToast(null), 3500);
+  };
+
   const [detail, setDetail] = useState<IntegrationDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [revealKey, setRevealKey] = useState(false);
@@ -195,15 +486,30 @@ export default function IntegrationsPage() {
   const [orgs, setOrgs] = useState<
     Array<{ id: number; code: string; name: string; tenantId: number | null }>
   >([]);
+  const [devices, setDevices] = useState<Array<{ code: string; name: string }>>([]);
 
   const loadRegistry = useCallback(async () => {
     try {
-      const [tRes, oRes] = await Promise.all([
+      const [tRes, oRes, dRes] = await Promise.all([
         fetch('/api/tenants', { cache: 'no-store' }),
         fetch('/api/organizations', { cache: 'no-store' }),
+        fetch('/api/devices', { cache: 'no-store' }),
       ]);
       if (tRes.ok) setTenants(await tRes.json());
       if (oRes.ok) setOrgs(await oRes.json());
+      if (dRes.ok) {
+        const list = (await dRes.json()) as unknown;
+        if (Array.isArray(list)) {
+          setDevices(
+            list
+              .map((d) => {
+                const row = d as { device_code?: string; deviceCode?: string; name?: string };
+                return { code: row.device_code || row.deviceCode || '', name: row.name || '' };
+              })
+              .filter((x) => x.code),
+          );
+        }
+      }
     } catch {
       /* keep previous */
     }
@@ -334,9 +640,15 @@ export default function IntegrationsPage() {
         setFormError(d.error || d.message || 'Failed to save subscription');
         return;
       }
+      const wasEdit = !!editingId;
       setShowForm(false);
       setEditingId(null);
       setForm({ ...EMPTY_FORM });
+      showToast(
+        wasEdit
+          ? 'Webhook subscription updated successfully'
+          : 'Webhook subscription registered successfully',
+      );
       void fetchAll();
     } catch (err: unknown) {
       setFormError(err instanceof Error ? err.message : 'Failed to save subscription');
@@ -370,11 +682,15 @@ export default function IntegrationsPage() {
     }
     setDeletingId(id);
     try {
-      await fetch(`/api/integrations/${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/integrations/${id}`, { method: 'DELETE' });
       setDetail(null);
       void fetchAll();
+      showToast(
+        res.ok ? 'Webhook subscription deleted' : 'Failed to delete subscription',
+        res.ok ? 'success' : 'error',
+      );
     } catch {
-      /* ignore */
+      showToast('Failed to delete subscription', 'error');
     } finally {
       setDeletingId(null);
     }
@@ -384,6 +700,24 @@ export default function IntegrationsPage() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
+      {/* Toast */}
+      {toast && (
+        <div
+          className={`fixed top-5 right-5 z-[60] px-4 py-3 rounded-lg shadow-2xl backdrop-blur-md flex items-center gap-2.5 text-xs font-medium border animate-in slide-in-from-top-4 duration-200 ${
+            toast.type === 'success'
+              ? 'bg-emerald-950/90 border-emerald-500/50 text-emerald-200'
+              : 'bg-rose-950/90 border-rose-500/50 text-rose-200'
+          }`}
+        >
+          {toast.type === 'success' ? (
+            <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+          ) : (
+            <AlertTriangle className="h-4 w-4 text-rose-400 shrink-0" />
+          )}
+          <span>{toast.text}</span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-5">
         <div>
@@ -479,7 +813,11 @@ export default function IntegrationsPage() {
         <StatTile
           title="Deliveries (24h)"
           value={stats ? stats.deliveries24h.toLocaleString() : '—'}
-          delta={stats ? `${stats.activeEndpoints} endpoint${stats.activeEndpoints === 1 ? '' : 's'}` : undefined}
+          delta={
+            stats
+              ? `${stats.activeEndpoints} endpoint${stats.activeEndpoints === 1 ? '' : 's'}`
+              : undefined
+          }
           deltaType="neutral"
           hint="signed dispatches"
           icon={Sparkles}
@@ -647,404 +985,399 @@ export default function IntegrationsPage() {
         </CardContent>
       </Card>
 
-      {/* Create / Edit Subscription modal */}
-      {showForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <Card className="w-full max-w-lg max-h-[90vh] overflow-y-auto border-border bg-card shadow-2xl">
-            <CardHeader className="p-5 pb-3 border-b border-border/80 flex-row items-center justify-between sticky top-0 bg-card z-10">
+      {/* Create / Edit Subscription drawer */}
+      <Drawer
+        open={showForm}
+        onClose={() => setShowForm(false)}
+        title={editingId ? 'Edit Webhook Subscription' : 'Register Webhook Subscription'}
+        subtitle="Delivers signed, normalized attendance punches to this company's endpoint in real time."
+        icon={Send}
+        width="md"
+      >
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+          <div className="flex-1 overflow-y-auto p-5 space-y-3">
+            <div>
+              <LabelWithInfo
+                label="Integration Name *"
+                info="A label for your own reference — identifies this webhook in the list. Not sent to the receiver."
+              />
+              <Input
+                required
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="Workday HRMS Primary Webhook"
+              />
+            </div>
+            <div>
+              <LabelWithInfo
+                label="Endpoint URL *"
+                info="The receiver's HTTPS URL where each signed punch is POSTed in real time. For the HRMS receiver this is .../api/v1/integrations/attendance/webhook. Must be reachable from this server."
+              />
+              <Input
+                required
+                value={form.endpointUrl}
+                onChange={(e) => setForm({ ...form, endpointUrl: e.target.value })}
+                placeholder="https://hrms.example.com/api/attendance/events"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              {/* Tenant — selecting one filters the Organization list below it. */}
               <div>
-                <CardTitle className="text-base font-semibold">
-                  {editingId ? 'Edit Webhook Subscription' : 'Register Webhook Subscription'}
-                </CardTitle>
-                <CardDescription className="text-xs">
-                  Delivers signed, normalized attendance punches to this company&apos;s endpoint in
-                  real time.
-                </CardDescription>
-              </div>
-              <button
-                onClick={() => setShowForm(false)}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </CardHeader>
-            <CardContent className="p-5">
-              <form onSubmit={handleSubmit} className="space-y-3">
-                <div>
-                  <LabelWithInfo label="Integration Name *" info="A label for your own reference — identifies this webhook in the list. Not sent to the receiver." />
-                  <Input
-                    required
-                    value={form.name}
-                    onChange={(e) => setForm({ ...form, name: e.target.value })}
-                    placeholder="Workday HRMS Primary Webhook"
-                  />
-                </div>
-                <div>
-                  <LabelWithInfo label="Endpoint URL *" info="The receiver's HTTPS URL where each signed punch is POSTed in real time. For the HRMS receiver this is .../api/v1/integrations/attendance/webhook. Must be reachable from this server." />
-                  <Input
-                    required
-                    value={form.endpointUrl}
-                    onChange={(e) => setForm({ ...form, endpointUrl: e.target.value })}
-                    placeholder="https://hrms.example.com/api/attendance/events"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  {/* Tenant — selecting one filters the Organization list below it. */}
-                  <div>
-                    <LabelWithInfo label="Tenant (optional)" info="Select a registered Tenant. Its code is injected into each delivered payload as tenantId for the receiver to match on. Leave as None to omit tenantId." />
-                    <select
-                      value={form.tenantId}
-                      onChange={(e) => {
-                        const code = e.target.value;
-                        const t = tenants.find((x) => x.code === code);
-                        const keepOrg =
-                          !form.organizationId ||
-                          !t ||
-                          orgs.some((o) => o.code === form.organizationId && o.tenantId === t.id);
-                        setForm({
-                          ...form,
-                          tenantId: code,
-                          organizationId: keepOrg ? form.organizationId : '',
-                        });
-                      }}
-                      className="w-full h-9 rounded-md border border-border bg-background px-2 text-sm"
-                    >
-                      <option value="">— None —</option>
-                      {form.tenantId && !tenants.some((t) => t.code === form.tenantId) && (
-                        <option value={form.tenantId}>{form.tenantId} (unregistered)</option>
-                      )}
-                      {tenants.map((t) => (
-                        <option key={t.id} value={t.code}>
-                          {t.name} ({t.code})
-                        </option>
-                      ))}
-                    </select>
-                    {tenants.length === 0 && (
-                      <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
-                        No tenants yet.{' '}
-                        <a href="/organizations" className="underline">
-                          Register one
-                        </a>
-                        .
-                      </p>
-                    )}
-                  </div>
-                  {/* Organization — filtered to the selected Tenant's organizations. */}
-                  <div>
-                    <LabelWithInfo
-                      label="Organization (optional)"
-                      align="right"
-                      info="Select a registered Organization. Its code is injected as organizationId. Leave as Event organization to send the punch's own org. Filtered by the selected Tenant."
-                    />
-                    {(() => {
-                      const selTenant = tenants.find((x) => x.code === form.tenantId);
-                      const availableOrgs = selTenant
-                        ? orgs.filter((o) => o.tenantId === selTenant.id)
-                        : orgs;
-                      const hasUnregisteredOrg =
-                        !!form.organizationId && !orgs.some((o) => o.code === form.organizationId);
-                      return (
-                        <>
-                          <select
-                            value={form.organizationId}
-                            onChange={(e) => setForm({ ...form, organizationId: e.target.value })}
-                            className="w-full h-9 rounded-md border border-border bg-background px-2 text-sm"
-                          >
-                            <option value="">— Event organization —</option>
-                            {hasUnregisteredOrg && (
-                              <option value={form.organizationId}>
-                                {form.organizationId} (unregistered)
-                              </option>
-                            )}
-                            {availableOrgs.map((o) => (
-                              <option key={o.id} value={o.code}>
-                                {o.name} ({o.code})
-                              </option>
-                            ))}
-                          </select>
-                          {orgs.length === 0 ? (
-                            <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
-                              No organizations yet.{' '}
-                              <a href="/organizations" className="underline">
-                                Register one
-                              </a>
-                              .
-                            </p>
-                          ) : selTenant && availableOrgs.length === 0 ? (
-                            <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
-                              No organizations under &ldquo;{selTenant.name}&rdquo;.{' '}
-                              <a href="/organizations" className="underline">
-                                Add one
-                              </a>
-                              .
-                            </p>
-                          ) : null}
-                        </>
-                      );
-                    })()}
-                  </div>
-                </div>
-                <p className="text-[11px] text-muted-foreground -mt-1">
-                  Pick registered records (manage them on the{' '}
-                  <a href="/organizations" className="underline">
-                    Organizations &amp; Tenants
-                  </a>{' '}
-                  page). Their codes are injected into each delivered payload; the receiver must mirror them.
-                </p>
-                <div>
-                  <LabelWithInfo label="Signing Mode" info="How deliveries are signed so the receiver can verify them. HMAC-SHA256 uses a shared secret (shown in Details). Ed25519 signs with a private key the platform keeps; the receiver verifies with the public key (safer — the receiver can't forge events). None sends unsigned (not recommended). Must match what the receiver is configured for." />
-                  <select
-                    value={form.authType}
-                    onChange={(e) => setForm({ ...form, authType: e.target.value })}
-                    className="w-full h-9 rounded-md border border-border bg-background px-2 text-sm"
-                  >
-                    <option value="HMAC_SHA256">HMAC-SHA256 (shared secret)</option>
-                    <option value="ED25519">Ed25519 (public / private key)</option>
-                    <option value="NONE">None</option>
-                  </select>
-                </div>
-
-                {/* Routing filters */}
-                <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-3">
-                  <p className="text-[11px] font-semibold text-muted-foreground">
-                    Delivery filter (optional) — leave blank to deliver all of this company&apos;s
-                    punches
-                  </p>
-                  <div>
-                    <LabelWithInfo label="Device Code" className="text-[11px] font-medium text-foreground" info="Only deliver punches from this specific device code (e.g. SUP-GSDK-01). Leave blank to deliver punches from every device of this company." />
-                    <Input
-                      value={form.deviceCode}
-                      onChange={(e) => setForm({ ...form, deviceCode: e.target.value })}
-                      placeholder="e.g. SUP-GSDK-01"
-                    />
-                  </div>
-                </div>
-
-                {formError && (
-                  <p className="text-xs text-rose-500 flex items-center gap-1">
-                    <AlertTriangle className="h-3 w-3" /> {formError}
-                  </p>
-                )}
-                <div className="flex items-center justify-end gap-2 pt-1">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowForm(false)}
-                  >
-                    Cancel
-                  </Button>
-                  <Button type="submit" size="sm" disabled={submitting} className="font-semibold">
-                    {submitting
-                      ? editingId
-                        ? 'Saving…'
-                        : 'Registering…'
-                      : editingId
-                        ? 'Save Changes'
-                        : 'Register Subscription'}
-                  </Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Detail modal */}
-      {(detail || detailLoading) && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <Card className="w-full max-w-2xl max-h-[88vh] overflow-y-auto border-border bg-card shadow-2xl">
-            <CardHeader className="p-5 pb-3 border-b border-border/80 flex-row items-center justify-between sticky top-0 bg-card z-10">
-              <div>
-                <CardTitle className="text-base font-semibold">
-                  {detail ? detail.name : 'Loading…'}
-                </CardTitle>
-                <CardDescription className="text-xs">
-                  Webhook signing keys, headers, and verification.
-                </CardDescription>
-              </div>
-              <button
-                onClick={() => setDetail(null)}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </CardHeader>
-            {detail && (
-              <CardContent className="p-5 space-y-5 text-sm">
-                {/* Endpoint + meta */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <Field label="Endpoint URL" value={detail.endpointUrl} mono copy />
-                  <Field label="Signing Mode" value={detail.signing.algorithm} />
-                  <Field label="Status" value={detail.status} />
-                  <Field label="Event Types" value={detail.eventTypes.join(', ')} />
-                  {detail.filterRules && Object.keys(detail.filterRules).length > 0 && (
-                    <Field
-                      label="Delivery Filters"
-                      value={Object.entries(detail.filterRules)
-                        .map(([k, v]) => `${k}=${Array.isArray(v) ? v.join('/') : String(v)}`)
-                        .join(', ')}
-                      mono
-                    />
+                <LabelWithInfo
+                  label="Tenant (optional)"
+                  info="Select a registered Tenant. Its code is injected into each delivered payload as tenantId for the receiver to match on. Leave as None to omit tenantId."
+                />
+                <select
+                  value={form.tenantId}
+                  onChange={(e) => {
+                    const code = e.target.value;
+                    const t = tenants.find((x) => x.code === code);
+                    const keepOrg =
+                      !form.organizationId ||
+                      !t ||
+                      orgs.some((o) => o.code === form.organizationId && o.tenantId === t.id);
+                    setForm({
+                      ...form,
+                      tenantId: code,
+                      organizationId: keepOrg ? form.organizationId : '',
+                    });
+                  }}
+                  className="w-full h-9 rounded-md border border-border bg-background px-2 text-sm"
+                >
+                  <option value="">— None —</option>
+                  {form.tenantId && !tenants.some((t) => t.code === form.tenantId) && (
+                    <option value={form.tenantId}>{form.tenantId} (unregistered)</option>
                   )}
-                </div>
-
-                {/* Signing material: HMAC shared secret, Ed25519 public key, or unsigned */}
-                {detail.signing.mode === 'HMAC' && detail.signing.signingKey && (
-                  <div className="rounded-lg border border-indigo-500/30 bg-indigo-500/5 p-3 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                        <Lock className="h-3.5 w-3.5 text-indigo-500" /> HMAC Signing Key (
-                        {detail.signing.algorithm})
-                      </span>
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => setRevealKey((v) => !v)}
-                          className="text-[11px] px-2 py-1 rounded-md border border-border hover:bg-muted/50"
-                        >
-                          {revealKey ? 'Hide' : 'Reveal'}
-                        </button>
-                        <CopyButton value={detail.signing.signingKey} />
-                      </div>
-                    </div>
-                    <code className="block font-mono text-[11px] break-all bg-background/70 rounded px-2 py-1.5">
-                      {revealKey
-                        ? detail.signing.signingKey
-                        : `${detail.signing.signingKey.slice(0, 8)}${'•'.repeat(40)}`}
-                    </code>
-                    <p className="text-[11px] text-muted-foreground">
-                      This is a <strong>shared secret</strong> — configure your receiver with it to
-                      verify the <code className="font-mono">{detail.signing.signatureHeader}</code>{' '}
-                      header.
-                    </p>
-                  </div>
+                  {tenants.map((t) => (
+                    <option key={t.id} value={t.code}>
+                      {t.name} ({t.code})
+                    </option>
+                  ))}
+                </select>
+                {tenants.length === 0 && (
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
+                    No tenants yet.{' '}
+                    <a href="/organizations" className="underline">
+                      Register one
+                    </a>
+                    .
+                  </p>
                 )}
+              </div>
+              {/* Organization — filtered to the selected Tenant's organizations. */}
+              <div>
+                <LabelWithInfo
+                  label="Organization (optional)"
+                  align="right"
+                  info="Select a registered Organization. Its code is injected as organizationId. Leave as Event organization to send the punch's own org. Filtered by the selected Tenant."
+                />
+                {(() => {
+                  const selTenant = tenants.find((x) => x.code === form.tenantId);
+                  const availableOrgs = selTenant
+                    ? orgs.filter((o) => o.tenantId === selTenant.id)
+                    : orgs;
+                  const hasUnregisteredOrg =
+                    !!form.organizationId && !orgs.some((o) => o.code === form.organizationId);
+                  return (
+                    <>
+                      <select
+                        value={form.organizationId}
+                        onChange={(e) => setForm({ ...form, organizationId: e.target.value })}
+                        className="w-full h-9 rounded-md border border-border bg-background px-2 text-sm"
+                      >
+                        <option value="">— Event organization —</option>
+                        {hasUnregisteredOrg && (
+                          <option value={form.organizationId}>
+                            {form.organizationId} (unregistered)
+                          </option>
+                        )}
+                        {availableOrgs.map((o) => (
+                          <option key={o.id} value={o.code}>
+                            {o.name} ({o.code})
+                          </option>
+                        ))}
+                      </select>
+                      {orgs.length === 0 ? (
+                        <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
+                          No organizations yet.{' '}
+                          <a href="/organizations" className="underline">
+                            Register one
+                          </a>
+                          .
+                        </p>
+                      ) : selTenant && availableOrgs.length === 0 ? (
+                        <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
+                          No organizations under &ldquo;{selTenant.name}&rdquo;.{' '}
+                          <a href="/organizations" className="underline">
+                            Add one
+                          </a>
+                          .
+                        </p>
+                      ) : null}
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+            <p className="text-[11px] text-muted-foreground -mt-1">
+              Pick registered records (manage them on the{' '}
+              <a href="/organizations" className="underline">
+                Organizations &amp; Tenants
+              </a>{' '}
+              page). Their codes are injected into each delivered payload; the receiver must mirror
+              them.
+            </p>
+            <div>
+              <LabelWithInfo
+                label="Signing Mode"
+                info="How deliveries are signed so the receiver can verify them. HMAC-SHA256 uses a shared secret (shown in Details). Ed25519 signs with a private key the platform keeps; the receiver verifies with the public key (safer — the receiver can't forge events). None sends unsigned (not recommended). Must match what the receiver is configured for."
+              />
+              <select
+                value={form.authType}
+                onChange={(e) => setForm({ ...form, authType: e.target.value })}
+                className="w-full h-9 rounded-md border border-border bg-background px-2 text-sm"
+              >
+                <option value="HMAC_SHA256">HMAC-SHA256 (shared secret)</option>
+                <option value="ED25519">Ed25519 (public / private key)</option>
+                <option value="NONE">None</option>
+              </select>
+            </div>
 
-                {detail.signing.mode === 'ASYMMETRIC' && detail.signing.publicKeyPem && (
-                  <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                        <KeyRound className="h-3.5 w-3.5 text-emerald-500" /> Ed25519 Public Key
-                      </span>
-                      <CopyButton value={detail.signing.publicKeyPem} />
-                    </div>
-                    <code className="block font-mono text-[10px] whitespace-pre-wrap break-all bg-background/70 rounded px-2 py-1.5">
-                      {detail.signing.publicKeyPem}
-                    </code>
-                    {detail.signing.publicKeyBase64 && (
-                      <div className="flex items-center justify-between gap-2">
-                        <code className="font-mono text-[10px] break-all text-muted-foreground">
-                          raw: {detail.signing.publicKeyBase64}
-                        </code>
-                        <CopyButton value={detail.signing.publicKeyBase64} className="scale-90" />
-                      </div>
-                    )}
-                    <p className="text-[11px] text-muted-foreground">
-                      Safe to store. Verify the{' '}
-                      <code className="font-mono">{detail.signing.signatureHeader}</code> header
-                      (prefix <code className="font-mono">ed25519=</code>) with this public key. The
-                      private key is never stored or exposed.
-                    </p>
-                  </div>
-                )}
-
-                {detail.signing.mode === 'NONE' && (
-                  <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
-                    <p className="text-[11px] text-amber-700 dark:text-amber-300">
-                      Requests to this endpoint are <strong>not signed</strong>. Enable HMAC or
-                      Ed25519 to let the receiver verify authenticity.
-                    </p>
-                  </div>
-                )}
-
-                {/* Headers */}
-                <Block
-                  title="Request Headers"
-                  copyValue={Object.entries(detail.exampleHeaders)
-                    .map(([k, v]) => `${k}: ${v}`)
-                    .join('\n')}
-                >
-                  <div className="space-y-1">
-                    {Object.entries(detail.exampleHeaders).map(([k, v]) => (
-                      <div key={k} className="font-mono text-[11px] break-all">
-                        <span className="text-indigo-500">{k}</span>
-                        <span className="text-muted-foreground">: {v}</span>
-                      </div>
-                    ))}
-                  </div>
-                </Block>
-
-                {/* Body */}
-                <Block title="Example Request Body" copyValue={detail.exampleBody}>
-                  <pre className="font-mono text-[11px] whitespace-pre-wrap break-all max-h-56 overflow-y-auto">
-                    {detail.exampleBody}
-                  </pre>
-                </Block>
-
-                {/* Verify snippet */}
-                <Block
-                  title="Verify Signature (Node.js)"
-                  copyValue={detail.verifySnippet}
-                  subtitle={`Signed content: ${detail.signing.signedContent}`}
-                >
-                  <pre className="font-mono text-[11px] whitespace-pre-wrap break-all bg-background/70 rounded p-2">
-                    {detail.verifySnippet}
-                  </pre>
-                </Block>
-
-                <div className="flex items-center justify-between pt-1">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="text-rose-500 border-rose-500/30 hover:bg-rose-500/10"
-                    onClick={() => void handleDelete(detail.id, detail.name)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete
-                  </Button>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        openEdit(
-                          {
-                            id: detail.id,
-                            name: detail.name,
-                            targetType: detail.targetType,
-                            endpointUrl: detail.endpointUrl,
-                            authType: detail.authType,
-                            status: detail.status,
-                            eventTypes: detail.eventTypes,
-                            todayCount: 0,
-                            todaySuccess: 0,
-                            successRate: 0,
-                            avgLatencyMs: 0,
-                          },
-                          detail.filterRules,
-                          detail.tenantId ?? null,
-                          detail.organizationId ?? null,
-                        )
-                      }
-                    >
-                      <Pencil className="h-3.5 w-3.5 mr-1" /> Edit
-                    </Button>
-                    <Button
-                      size="sm"
-                      className="font-semibold"
-                      disabled={testingId === detail.id}
-                      onClick={() => void handleTest(detail.id)}
-                    >
-                      <Zap className="h-3.5 w-3.5 mr-1" />
-                      {testingId === detail.id ? 'Dispatching…' : 'Send Test Dispatch'}
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
+            {/* Routing filters */}
+            <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-3">
+              <p className="text-[11px] font-semibold text-muted-foreground">
+                Delivery filter (optional) — leave blank to deliver all of this company&apos;s
+                punches
+              </p>
+              <div>
+                <LabelWithInfo
+                  label="Device Code(s)"
+                  className="text-[11px] font-medium text-foreground"
+                  info="Only deliver punches from the selected device(s). Pick one or more registered terminals, or leave empty (All devices) to deliver punches from every device of this company."
+                />
+                <DeviceMultiSelect
+                  devices={devices}
+                  value={form.deviceCode}
+                  onChange={(csv) => setForm({ ...form, deviceCode: csv })}
+                />
+              </div>
+            </div>
+          </div>
+          <div className="border-t border-border/60 bg-muted/20 p-3 space-y-2.5 shrink-0">
+            {formError && (
+              <p className="text-xs text-rose-500 flex items-center gap-1">
+                <AlertTriangle className="h-3 w-3" /> {formError}
+              </p>
             )}
-          </Card>
-        </div>
-      )}
+            <div className="flex items-center justify-end gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => setShowForm(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" size="sm" disabled={submitting} className="font-semibold">
+                {submitting
+                  ? editingId
+                    ? 'Saving…'
+                    : 'Registering…'
+                  : editingId
+                    ? 'Save Changes'
+                    : 'Register Subscription'}
+              </Button>
+            </div>
+          </div>
+        </form>
+      </Drawer>
+
+      {/* Detail drawer */}
+      <Drawer
+        open={!!(detail || detailLoading)}
+        onClose={() => {
+          setDetail(null);
+          setDetailLoading(false);
+        }}
+        title={detail ? detail.name : 'Loading…'}
+        subtitle="Webhook signing keys, headers, and verification."
+        icon={Lock}
+        width="xl"
+      >
+        {detailLoading && !detail && (
+          <div className="flex-1 flex items-center justify-center gap-2 p-10 text-xs text-muted-foreground">
+            <RefreshCw className="h-4 w-4 animate-spin" /> Loading webhook details…
+          </div>
+        )}
+        {detail && (
+          <>
+            <div className="flex-1 overflow-y-auto p-5 space-y-5 text-sm">
+              {/* Endpoint + meta */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Field label="Endpoint URL" value={detail.endpointUrl} mono copy />
+                <Field label="Signing Mode" value={detail.signing.algorithm} />
+                <Field label="Status" value={detail.status} />
+                <Field label="Event Types" value={detail.eventTypes.join(', ')} />
+                {detail.filterRules && Object.keys(detail.filterRules).length > 0 && (
+                  <Field
+                    label="Delivery Filters"
+                    value={Object.entries(detail.filterRules)
+                      .map(([k, v]) => `${k}=${Array.isArray(v) ? v.join('/') : String(v)}`)
+                      .join(', ')}
+                    mono
+                  />
+                )}
+              </div>
+
+              {/* Signing material: HMAC shared secret, Ed25519 public key, or unsigned */}
+              {detail.signing.mode === 'HMAC' && detail.signing.signingKey && (
+                <div className="rounded-lg border border-indigo-500/30 bg-indigo-500/5 p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                      <Lock className="h-3.5 w-3.5 text-indigo-500" /> HMAC Signing Key (
+                      {detail.signing.algorithm})
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setRevealKey((v) => !v)}
+                        className="text-[11px] px-2 py-1 rounded-md border border-border hover:bg-muted/50"
+                      >
+                        {revealKey ? 'Hide' : 'Reveal'}
+                      </button>
+                      <CopyButton value={detail.signing.signingKey} />
+                    </div>
+                  </div>
+                  <code className="block font-mono text-[11px] break-all bg-background/70 rounded px-2 py-1.5">
+                    {revealKey
+                      ? detail.signing.signingKey
+                      : `${detail.signing.signingKey.slice(0, 8)}${'•'.repeat(40)}`}
+                  </code>
+                  <p className="text-[11px] text-muted-foreground">
+                    This is a <strong>shared secret</strong> — configure your receiver with it to
+                    verify the <code className="font-mono">{detail.signing.signatureHeader}</code>{' '}
+                    header.
+                  </p>
+                </div>
+              )}
+
+              {detail.signing.mode === 'ASYMMETRIC' && detail.signing.publicKeyPem && (
+                <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                      <KeyRound className="h-3.5 w-3.5 text-emerald-500" /> Ed25519 Public Key
+                    </span>
+                    <CopyButton value={detail.signing.publicKeyPem} />
+                  </div>
+                  <code className="block font-mono text-[10px] whitespace-pre-wrap break-all bg-background/70 rounded px-2 py-1.5">
+                    {detail.signing.publicKeyPem}
+                  </code>
+                  {detail.signing.publicKeyBase64 && (
+                    <div className="flex items-center justify-between gap-2">
+                      <code className="font-mono text-[10px] break-all text-muted-foreground">
+                        raw: {detail.signing.publicKeyBase64}
+                      </code>
+                      <CopyButton value={detail.signing.publicKeyBase64} className="scale-90" />
+                    </div>
+                  )}
+                  <p className="text-[11px] text-muted-foreground">
+                    Safe to store. Verify the{' '}
+                    <code className="font-mono">{detail.signing.signatureHeader}</code> header
+                    (prefix <code className="font-mono">ed25519=</code>) with this public key. The
+                    private key is never stored or exposed.
+                  </p>
+                </div>
+              )}
+
+              {detail.signing.mode === 'NONE' && (
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+                  <p className="text-[11px] text-amber-700 dark:text-amber-300">
+                    Requests to this endpoint are <strong>not signed</strong>. Enable HMAC or
+                    Ed25519 to let the receiver verify authenticity.
+                  </p>
+                </div>
+              )}
+
+              {/* Headers */}
+              <Block
+                title="Request Headers"
+                copyValue={Object.entries(detail.exampleHeaders)
+                  .map(([k, v]) => `${k}: ${v}`)
+                  .join('\n')}
+              >
+                <div className="space-y-1">
+                  {Object.entries(detail.exampleHeaders).map(([k, v]) => (
+                    <div key={k} className="font-mono text-[11px] break-all">
+                      <span className="text-indigo-500">{k}</span>
+                      <span className="text-muted-foreground">: {v}</span>
+                    </div>
+                  ))}
+                </div>
+              </Block>
+
+              {/* Body */}
+              <Block title="Example Request Body" copyValue={detail.exampleBody}>
+                <pre className="font-mono text-[11px] whitespace-pre-wrap break-all max-h-56 overflow-y-auto">
+                  {detail.exampleBody}
+                </pre>
+              </Block>
+
+              {/* Verify snippet */}
+              <Block
+                title="Verify Signature (Node.js)"
+                copyValue={detail.verifySnippet}
+                subtitle={`Signed content: ${detail.signing.signedContent}`}
+              >
+                <pre className="font-mono text-[11px] whitespace-pre-wrap break-all bg-background/70 rounded p-2">
+                  {detail.verifySnippet}
+                </pre>
+              </Block>
+            </div>
+            <div className="flex items-center justify-between gap-2 border-t border-border/60 bg-muted/20 p-3 shrink-0">
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-rose-500 border-rose-500/30 hover:bg-rose-500/10"
+                onClick={() => void handleDelete(detail.id, detail.name)}
+              >
+                <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete
+              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    openEdit(
+                      {
+                        id: detail.id,
+                        name: detail.name,
+                        targetType: detail.targetType,
+                        endpointUrl: detail.endpointUrl,
+                        authType: detail.authType,
+                        status: detail.status,
+                        eventTypes: detail.eventTypes,
+                        todayCount: 0,
+                        todaySuccess: 0,
+                        successRate: 0,
+                        avgLatencyMs: 0,
+                      },
+                      detail.filterRules,
+                      detail.tenantId ?? null,
+                      detail.organizationId ?? null,
+                    )
+                  }
+                >
+                  <Pencil className="h-3.5 w-3.5 mr-1" /> Edit
+                </Button>
+                <Button
+                  size="sm"
+                  className="font-semibold"
+                  disabled={testingId === detail.id}
+                  onClick={() => void handleTest(detail.id)}
+                >
+                  <Zap className="h-3.5 w-3.5 mr-1" />
+                  {testingId === detail.id ? 'Dispatching…' : 'Send Test Dispatch'}
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
+      </Drawer>
     </div>
   );
 }

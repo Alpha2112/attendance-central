@@ -3,6 +3,8 @@ import { type RowDataPacket } from 'mysql2/promise';
 export interface OrganizationEntity extends RowDataPacket {
   id: number;
   tenant_id: number | null;
+  /** Self-referencing parent for the org tree; NULL = root (top-level) org. */
+  parent_id: number | null;
   code: string;
   name: string;
   timezone: string;
@@ -12,7 +14,8 @@ export interface OrganizationEntity extends RowDataPacket {
 }
 
 export interface CreateOrganizationDto {
-  tenantId?: number;
+  tenantId?: number | null;
+  parentId?: number | null;
   code: string;
   name: string;
   timezone?: string;

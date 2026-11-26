@@ -1,0 +1,4 @@
+externalEmployeeId,employeeName,organizationId,vendorUserId,cardNo,deviceCode,status
+EMP-5001,Grace Multi,ORG-TECHIVE,5001,CRD-5001,DEV-HQ-HIK01;DEV-HQ-ZK01,ACTIVE
+EMP-5002,Omar Dual,ORG-TECHIVE,5002,CRD-5002,DEV-HQ-ZK01;sup-gsdk-01,ACTIVE
+EMP-5003,Single Term,ORG-TECHIVE,5003,CRD-5003,DEV-HQ-HIK01,ACTIVE

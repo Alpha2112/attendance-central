@@ -93,6 +93,16 @@ export class DeviceEmployeeMappingRepository {
     );
   }
 
+  /** Number of employee mappings bound to an organization. */
+  public async countByOrganization(organizationId: number): Promise<number> {
+    const rows = await this.client.query<
+      Array<{ n: number } & import('mysql2/promise').RowDataPacket>
+    >('SELECT COUNT(*) AS n FROM device_employee_mappings WHERE organization_id = ?', [
+      organizationId,
+    ]);
+    return Number(rows[0]?.n ?? 0);
+  }
+
   public async createOrUpdate(dto: CreateMappingDto): Promise<number> {
     // 1. Check if external_employee_id is already mapped on this device
     const existingByEmp = await this.findByDeviceAndExternalEmployeeId(
@@ -187,6 +197,14 @@ export class DeviceEmployeeMappingRepository {
     if (fields.deviceId !== undefined) {
       setClauses.push('device_id = ?');
       values.push(fields.deviceId);
+    }
+    if (fields.organizationId !== undefined) {
+      setClauses.push('organization_id = ?');
+      values.push(fields.organizationId);
+    }
+    if (fields.tenantId !== undefined) {
+      setClauses.push('tenant_id = ?');
+      values.push(fields.tenantId ?? null);
     }
     if (fields.metadata !== undefined) {
       setClauses.push('metadata = ?');

@@ -3,6 +3,7 @@ import {
   DatabaseClient,
   OrganizationRepository,
   TenantRepository,
+  DeviceEmployeeMappingRepository,
   type OrganizationEntity,
   type TenantEntity,
 } from '@attendance/database';
@@ -17,6 +18,8 @@ export interface UpsertOrganizationDto {
   code?: string;
   name?: string;
   tenantId?: number | null;
+  /** Parent organization id for the tree; null/0 = root (top-level) org. */
+  parentId?: number | null;
   timezone?: string;
   status?: string;
 }
@@ -36,6 +39,10 @@ export interface OrganizationView {
   name: string;
   tenantId: number | null;
   tenantName: string | null;
+  /** Parent org id in the tree; null = a root (top-level) organization. */
+  parentId: number | null;
+  /** Parent org name for display; null when this is a root. */
+  parentName: string | null;
   timezone: string;
   status: string;
   createdAt: string;
@@ -51,10 +58,12 @@ const CODE_RE = /^[A-Za-z0-9_-]+$/;
 export class RegistryService {
   private readonly orgRepo: OrganizationRepository;
   private readonly tenantRepo: TenantRepository;
+  private readonly mappingRepo: DeviceEmployeeMappingRepository;
 
   constructor(@Inject(DatabaseClient) private readonly db: DatabaseClient) {
     this.orgRepo = new OrganizationRepository(this.db);
     this.tenantRepo = new TenantRepository(this.db);
+    this.mappingRepo = new DeviceEmployeeMappingRepository(this.db);
   }
 
   // ---------------- Tenants ----------------
@@ -115,8 +124,18 @@ export class RegistryService {
   public async listOrganizations(tenantId?: number): Promise<OrganizationView[]> {
     const orgs = tenantId ? await this.orgRepo.listByTenant(tenantId) : await this.orgRepo.list();
     const tenants = await this.tenantRepo.list();
-    const byId = new Map<number, TenantEntity>(tenants.map((t) => [t.id, t]));
-    return orgs.map((o) => this.toOrgView(o, o.tenant_id != null ? byId.get(o.tenant_id) ?? null : null));
+    const tenantById = new Map<number, TenantEntity>(tenants.map((t) => [t.id, t]));
+    // Resolve parent names from the FULL org set (a child's parent may sit
+    // outside a tenant-filtered subset, or carry a different tenant).
+    const allOrgs = tenantId ? await this.orgRepo.list() : orgs;
+    const orgById = new Map<number, OrganizationEntity>(allOrgs.map((o) => [o.id, o]));
+    return orgs.map((o) =>
+      this.toOrgView(
+        o,
+        o.tenant_id != null ? tenantById.get(o.tenant_id) ?? null : null,
+        o.parent_id != null ? orgById.get(o.parent_id) ?? null : null,
+      ),
+    );
   }
 
   public async createOrganization(dto: UpsertOrganizationDto): Promise<OrganizationView> {
@@ -126,15 +145,19 @@ export class RegistryService {
       throw new BadRequestException(`An organization with code "${code}" already exists.`);
     }
     const tenant = await this.resolveTenant(dto.tenantId);
+    // A brand-new org has no descendants yet, so the only check on its parent is
+    // that it exists (no cycle is possible on create).
+    const parent = await this.resolveParent(dto.parentId, null);
     const id = await this.orgRepo.create({
       code,
       name,
-      tenantId: tenant?.id,
+      tenantId: tenant?.id ?? null,
+      parentId: parent?.id ?? null,
       timezone: dto.timezone || 'UTC',
       status: dto.status || 'ACTIVE',
     });
     const created = await this.orgRepo.findById(id);
-    return this.toOrgView(created!, tenant);
+    return this.toOrgView(created!, tenant, parent);
   }
 
   public async updateOrganization(id: number, dto: UpsertOrganizationDto): Promise<OrganizationView> {
@@ -154,6 +177,11 @@ export class RegistryService {
       tenant = await this.resolveTenant(dto.tenantId);
       dto.tenantId = tenant?.id ?? null;
     }
+    let parent: OrganizationEntity | null = null;
+    if (dto.parentId !== undefined) {
+      parent = await this.resolveParent(dto.parentId, id);
+      dto.parentId = parent?.id ?? null;
+    }
     await this.orgRepo.update(id, dto);
     const updated = await this.orgRepo.findById(id);
     const finalTenant =
@@ -162,12 +190,30 @@ export class RegistryService {
         : updated!.tenant_id != null
           ? await this.tenantRepo.findById(updated!.tenant_id)
           : null;
-    return this.toOrgView(updated!, finalTenant);
+    const finalParent =
+      dto.parentId !== undefined
+        ? parent
+        : updated!.parent_id != null
+          ? await this.orgRepo.findById(updated!.parent_id)
+          : null;
+    return this.toOrgView(updated!, finalTenant, finalParent);
   }
 
   public async deleteOrganization(id: number): Promise<void> {
     const existing = await this.orgRepo.findById(id);
     if (!existing) throw new NotFoundException(`Organization ${id} not found`);
+
+    // Employee mappings are protected by a RESTRICT foreign key, so the DB would
+    // reject the delete with a generic 500. Surface a clear 400 instead.
+    const mappingCount = await this.mappingRepo.countByOrganization(id);
+    if (mappingCount > 0) {
+      throw new BadRequestException(
+        `Cannot delete this organization: ${mappingCount} employee mapping(s) still reference it. Reassign or remove those mappings first.`,
+      );
+    }
+
+    // Children are promoted to roots by the DB (ON DELETE SET NULL); no sub-tree
+    // is destroyed.
     await this.orgRepo.delete(id);
   }
 
@@ -178,6 +224,50 @@ export class RegistryService {
     const tenant = await this.tenantRepo.findById(Number(tenantId));
     if (!tenant) throw new BadRequestException(`Tenant ${tenantId} does not exist.`);
     return tenant;
+  }
+
+  /**
+   * Resolve and validate a prospective parent organization.
+   *  - null / 0 / undefined -> root org (no parent).
+   *  - the parent must exist.
+   *  - an org cannot be its own parent, nor a descendant of itself (that would
+   *    create a cycle in the tree). `selfId` is the org being edited (null on
+   *    create, where no cycle is possible).
+   */
+  private async resolveParent(
+    parentId: number | null | undefined,
+    selfId: number | null,
+  ): Promise<OrganizationEntity | null> {
+    if (parentId === undefined || parentId === null || Number(parentId) === 0) return null;
+    const pid = Number(parentId);
+    if (Number.isNaN(pid)) throw new BadRequestException('Parent organization id is invalid.');
+
+    if (selfId !== null && pid === selfId) {
+      throw new BadRequestException('An organization cannot be its own parent.');
+    }
+
+    const parent = await this.orgRepo.findById(pid);
+    if (!parent) throw new BadRequestException(`Parent organization ${pid} does not exist.`);
+
+    // Walk up the prospective parent's ancestor chain. If we ever reach the org
+    // being edited, assigning this parent would form a cycle (the chosen parent
+    // is actually a descendant of this org).
+    if (selfId !== null) {
+      const seen = new Set<number>();
+      let cursor: OrganizationEntity | null = parent;
+      while (cursor) {
+        if (cursor.id === selfId) {
+          throw new BadRequestException(
+            'Cannot move an organization under one of its own descendants.',
+          );
+        }
+        if (seen.has(cursor.id)) break; // guard against pre-existing bad data
+        seen.add(cursor.id);
+        cursor = cursor.parent_id != null ? await this.orgRepo.findById(cursor.parent_id) : null;
+      }
+    }
+
+    return parent;
   }
 
   private requireCode(code: string | undefined, label: string): string {
@@ -208,13 +298,19 @@ export class RegistryService {
     };
   }
 
-  private toOrgView(o: OrganizationEntity, tenant: TenantEntity | null): OrganizationView {
+  private toOrgView(
+    o: OrganizationEntity,
+    tenant: TenantEntity | null,
+    parent: OrganizationEntity | null,
+  ): OrganizationView {
     return {
       id: o.id,
       code: o.code,
       name: o.name,
       tenantId: o.tenant_id ?? null,
       tenantName: tenant?.name ?? null,
+      parentId: o.parent_id ?? null,
+      parentName: parent?.name ?? null,
       timezone: o.timezone,
       status: o.status,
       createdAt: o.created_at ? new Date(o.created_at).toISOString() : new Date().toISOString(),

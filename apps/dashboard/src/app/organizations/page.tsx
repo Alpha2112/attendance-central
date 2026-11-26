@@ -45,6 +45,8 @@ interface Organization {
   name: string;
   tenantId: number | null;
   tenantName: string | null;
+  parentId: number | null;
+  parentName: string | null;
   timezone: string;
   status: string;
   createdAt: string;
@@ -69,9 +71,13 @@ export default function OrganizationsPage() {
 
   // Modal state (create/edit)
   const [modal, setModal] = useState<{ kind: Kind; id: number | null } | null>(null);
-  const [form, setForm] = useState<{ code: string; name: string; status: string; tenantId: string }>(
-    { code: '', name: '', status: 'ACTIVE', tenantId: '' },
-  );
+  const [form, setForm] = useState<{
+    code: string;
+    name: string;
+    status: string;
+    tenantId: string;
+    parentId: string;
+  }>({ code: '', name: '', status: 'ACTIVE', tenantId: '', parentId: '' });
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -107,19 +113,72 @@ export default function OrganizationsPage() {
   const filteredOrgs = useMemo(() => {
     const q = orgSearch.trim().toLowerCase();
     return q
-      ? orgs.filter((o) => `${o.name} ${o.code} ${o.tenantName ?? ''}`.toLowerCase().includes(q))
+      ? orgs.filter((o) =>
+          `${o.name} ${o.code} ${o.tenantName ?? ''} ${o.parentName ?? ''}`.toLowerCase().includes(q),
+        )
       : orgs;
   }, [orgs, orgSearch]);
 
+  // Pre-order flattening of the org tree: each root, then its children depth-first.
+  // An org whose parent is missing from the set is treated as a root so nothing
+  // is ever hidden. Guards against cycles from unexpected data.
+  const orgTreeRows = useMemo<{ org: Organization; depth: number }[]>(() => {
+    const ids = new Set(orgs.map((o) => o.id));
+    const childrenOf = new Map<number | 'root', Organization[]>();
+    for (const o of orgs) {
+      const key: number | 'root' = o.parentId != null && ids.has(o.parentId) ? o.parentId : 'root';
+      const list = childrenOf.get(key) ?? [];
+      list.push(o);
+      childrenOf.set(key, list);
+    }
+    for (const list of childrenOf.values()) list.sort((a, b) => a.name.localeCompare(b.name));
+
+    const rows: { org: Organization; depth: number }[] = [];
+    const seen = new Set<number>();
+    const walk = (parentKey: number | 'root', depth: number) => {
+      for (const o of childrenOf.get(parentKey) ?? []) {
+        if (seen.has(o.id)) continue; // cycle guard
+        seen.add(o.id);
+        rows.push({ org: o, depth });
+        walk(o.id, depth + 1);
+      }
+    };
+    walk('root', 0);
+    // Any orphans left by a cycle still get shown at the end.
+    for (const o of orgs) if (!seen.has(o.id)) rows.push({ org: o, depth: 0 });
+    return rows;
+  }, [orgs]);
+
+  // When editing an org, its own sub-tree (itself + all descendants) cannot be
+  // chosen as the new parent — that would create a cycle.
+  const parentOptions = useMemo<{ org: Organization; depth: number }[]>(() => {
+    if (!modal || modal.kind !== 'org') return orgTreeRows;
+    const editingId = modal.id;
+    if (editingId == null) return orgTreeRows; // creating: any org may be the parent
+    const banned = new Set<number>([editingId]);
+    // Repeatedly sweep until no new descendants are found.
+    let added = true;
+    while (added) {
+      added = false;
+      for (const o of orgs) {
+        if (o.parentId != null && banned.has(o.parentId) && !banned.has(o.id)) {
+          banned.add(o.id);
+          added = true;
+        }
+      }
+    }
+    return orgTreeRows.filter((r) => !banned.has(r.org.id));
+  }, [orgTreeRows, orgs, modal]);
+
   const openCreate = (kind: Kind) => {
     setModal({ kind, id: null });
-    setForm({ code: '', name: '', status: 'ACTIVE', tenantId: '' });
+    setForm({ code: '', name: '', status: 'ACTIVE', tenantId: '', parentId: '' });
     setFormError(null);
   };
 
   const openEditTenant = (t: Tenant) => {
     setModal({ kind: 'tenant', id: t.id });
-    setForm({ code: t.code, name: t.name, status: t.status, tenantId: '' });
+    setForm({ code: t.code, name: t.name, status: t.status, tenantId: '', parentId: '' });
     setFormError(null);
   };
 
@@ -130,6 +189,7 @@ export default function OrganizationsPage() {
       name: o.name,
       status: o.status,
       tenantId: o.tenantId != null ? String(o.tenantId) : '',
+      parentId: o.parentId != null ? String(o.parentId) : '',
     });
     setFormError(null);
   };
@@ -154,6 +214,7 @@ export default function OrganizationsPage() {
             name: form.name.trim(),
             status: form.status,
             tenantId: form.tenantId ? Number(form.tenantId) : null,
+            parentId: form.parentId ? Number(form.parentId) : null,
           };
     try {
       const res = await fetch(url, {
@@ -362,7 +423,8 @@ export default function OrganizationsPage() {
                 <div>
                   <CardTitle className="text-sm font-semibold">Organizations</CardTitle>
                   <CardDescription className="text-xs">
-                    Each Organization optionally belongs to a Tenant.
+                    An unlimited-depth tree — nest organizations from the top root down to the deepest
+                    child. Each may also belong to a Tenant.
                   </CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
@@ -402,7 +464,7 @@ export default function OrganizationsPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Name</TableHead>
+                      <TableHead>Organization</TableHead>
                       <TableHead>Code</TableHead>
                       <TableHead>Tenant</TableHead>
                       <TableHead>Status</TableHead>
@@ -410,9 +472,26 @@ export default function OrganizationsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredOrgs.map((o) => (
+                    {(orgSearch.trim()
+                      ? filteredOrgs.map((o) => ({ org: o, depth: 0 }))
+                      : orgTreeRows
+                    ).map(({ org: o, depth }) => (
                       <TableRow key={o.id}>
-                        <TableCell className="font-semibold text-foreground">{o.name}</TableCell>
+                        <TableCell className="font-semibold text-foreground">
+                          <div className="flex items-center" style={{ paddingLeft: depth * 20 }}>
+                            {depth > 0 && (
+                              <span className="text-muted-foreground mr-1.5 font-normal select-none">
+                                └─
+                              </span>
+                            )}
+                            {depth === 0 ? (
+                              <Building2 className="h-3.5 w-3.5 mr-1.5 text-primary shrink-0" />
+                            ) : (
+                              <Boxes className="h-3.5 w-3.5 mr-1.5 text-muted-foreground shrink-0" />
+                            )}
+                            <span>{o.name}</span>
+                          </div>
+                        </TableCell>
                         <TableCell className="font-mono text-xs text-muted-foreground">{o.code}</TableCell>
                         <TableCell className="text-xs">
                           {o.tenantName ? (
@@ -468,6 +547,32 @@ export default function OrganizationsPage() {
                   className="font-mono"
                 />
               </Field>
+
+              {modal.kind === 'org' && (
+                <Field
+                  label="Parent organization"
+                  hint="Nest this organization under another to build your structure (root → region → branch → …). Leave as a top-level root for no parent. Unlimited depth is supported."
+                >
+                  <select
+                    value={form.parentId}
+                    onChange={(e) => setForm({ ...form, parentId: e.target.value })}
+                    className="w-full h-9 rounded-md border border-border bg-background px-2 text-sm"
+                  >
+                    <option value="">— Top-level (root) —</option>
+                    {parentOptions.map(({ org: o, depth }) => (
+                      <option key={o.id} value={o.id}>
+                        {`${'  '.repeat(depth)}${depth > 0 ? '└ ' : ''}${o.name} (${o.code})`}
+                      </option>
+                    ))}
+                  </select>
+                  {modal.id != null && (
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      Its own sub-tree is hidden here — an organization can&apos;t be moved under one of
+                      its own descendants.
+                    </p>
+                  )}
+                </Field>
+              )}
 
               {modal.kind === 'org' && (
                 <Field label="Tenant" hint="Which tenant this organization belongs to.">

@@ -14,6 +14,9 @@ import { type AppConfig } from '@attendance/config';
 async function bootstrap(): Promise<void> {
   const fastifyAdapter = new FastifyAdapter({
     logger: false, // Internal logger disabled in favor of our Pino logger
+    // Raise the default 1 MB body limit so bulk employee-mapping imports
+    // (thousands of JSON rows) are not rejected as "Request body is too large".
+    bodyLimit: 25 * 1024 * 1024, // 25 MB
   });
 
   const app = await NestFactory.create<NestFastifyApplication>(AppModule, fastifyAdapter, {
