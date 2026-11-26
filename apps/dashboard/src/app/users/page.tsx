@@ -44,10 +44,29 @@ function initials(name: string): string {
 }
 
 function Overlay({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+  // Side-drawer chrome: Escape closes it and the body scroll is locked while open.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [onClose]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex justify-end bg-black/70 backdrop-blur-sm animate-in fade-in duration-200"
+      onClick={onClose}
+    >
       <div
-        className="w-full max-w-lg rounded-2xl border border-border bg-card p-5 shadow-xl"
+        role="dialog"
+        aria-modal="true"
+        className="relative h-full w-full max-w-lg bg-card border-l border-border shadow-2xl overflow-y-auto p-5 animate-in slide-in-from-right-[100%] duration-300 ease-out"
         onClick={(e) => e.stopPropagation()}
       >
         {children}
@@ -94,7 +113,13 @@ export default function UsersPage() {
       if (uRes.ok) setUsers(await uRes.json());
       if (rRes.ok) {
         const data = await rRes.json();
-        setRoles(data.map((r: { id: number; code: string; name: string }) => ({ id: r.id, code: r.code, name: r.name })));
+        setRoles(
+          data.map((r: { id: number; code: string; name: string }) => ({
+            id: r.id,
+            code: r.code,
+            name: r.name,
+          })),
+        );
       }
     } catch {
       /* ignore */
@@ -234,7 +259,11 @@ export default function UsersPage() {
               : 'bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-300'
           }`}
         >
-          {toast.type === 'success' ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+          {toast.type === 'success' ? (
+            <CheckCircle2 className="h-4 w-4" />
+          ) : (
+            <AlertCircle className="h-4 w-4" />
+          )}
           {toast.text}
         </div>
       )}
@@ -305,7 +334,9 @@ export default function UsersPage() {
                         <div className="font-semibold text-foreground flex items-center gap-1.5">
                           {u.fullName}
                           {me?.id === u.id && (
-                            <span className="text-[10px] text-muted-foreground font-normal">(you)</span>
+                            <span className="text-[10px] text-muted-foreground font-normal">
+                              (you)
+                            </span>
                           )}
                         </div>
                         <div className="text-xs text-muted-foreground">{u.email}</div>
@@ -331,7 +362,9 @@ export default function UsersPage() {
                   <td className="px-4 py-3">
                     <span
                       className={`inline-flex items-center gap-1.5 text-xs font-medium ${
-                        u.status === 'ACTIVE' ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'
+                        u.status === 'ACTIVE'
+                          ? 'text-emerald-600 dark:text-emerald-400'
+                          : 'text-muted-foreground'
                       }`}
                     >
                       <span
@@ -348,12 +381,20 @@ export default function UsersPage() {
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-1 text-muted-foreground">
                       <Can perm="users.edit">
-                        <button title="Edit" onClick={() => openEdit(u)} className="p-1.5 rounded hover:bg-muted hover:text-foreground">
+                        <button
+                          title="Edit"
+                          onClick={() => openEdit(u)}
+                          className="p-1.5 rounded hover:bg-muted hover:text-foreground"
+                        >
                           <Pencil className="h-4 w-4" />
                         </button>
                       </Can>
                       <Can perm="users.assign_roles">
-                        <button title="Assign roles" onClick={() => openEdit(u)} className="p-1.5 rounded hover:bg-muted hover:text-foreground">
+                        <button
+                          title="Assign roles"
+                          onClick={() => openEdit(u)}
+                          className="p-1.5 rounded hover:bg-muted hover:text-foreground"
+                        >
                           <ShieldCheck className="h-4 w-4" />
                         </button>
                       </Can>
@@ -363,16 +404,26 @@ export default function UsersPage() {
                           onClick={() => toggleStatus(u)}
                           className="p-1.5 rounded hover:bg-muted hover:text-foreground"
                         >
-                          <Power className={`h-4 w-4 ${u.status === 'ACTIVE' ? 'text-emerald-500' : ''}`} />
+                          <Power
+                            className={`h-4 w-4 ${u.status === 'ACTIVE' ? 'text-emerald-500' : ''}`}
+                          />
                         </button>
                       </Can>
                       <Can perm="users.reset_password">
-                        <button title="Reset password" onClick={() => setResetFor(u)} className="p-1.5 rounded hover:bg-muted hover:text-foreground">
+                        <button
+                          title="Reset password"
+                          onClick={() => setResetFor(u)}
+                          className="p-1.5 rounded hover:bg-muted hover:text-foreground"
+                        >
                           <KeyRound className="h-4 w-4" />
                         </button>
                       </Can>
                       <Can perm="users.delete">
-                        <button title="Delete" onClick={() => setDeleteFor(u)} className="p-1.5 rounded hover:bg-red-500/10 hover:text-red-500">
+                        <button
+                          title="Delete"
+                          onClick={() => setDeleteFor(u)}
+                          className="p-1.5 rounded hover:bg-red-500/10 hover:text-red-500"
+                        >
                           <Trash2 className="h-4 w-4" />
                         </button>
                       </Can>
@@ -392,28 +443,55 @@ export default function UsersPage() {
             <h2 className="text-base font-semibold text-foreground">
               {editing ? 'Edit User' : 'Add New User'}
             </h2>
-            <button onClick={() => setShowForm(false)} className="text-muted-foreground hover:text-foreground">
+            <button
+              onClick={() => setShowForm(false)}
+              className="text-muted-foreground hover:text-foreground"
+            >
               <X className="h-4 w-4" />
             </button>
           </div>
           <form onSubmit={submitForm} className="space-y-3">
             <div>
               <label className="text-xs font-medium text-muted-foreground">Full name</label>
-              <input className={inputCls} value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} required />
+              <input
+                className={inputCls}
+                value={form.fullName}
+                onChange={(e) => setForm({ ...form, fullName: e.target.value })}
+                required
+              />
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground">Email</label>
-              <input type="email" className={inputCls} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
+              <input
+                type="email"
+                className={inputCls}
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                required
+              />
             </div>
             {!editing && (
               <div>
-                <label className="text-xs font-medium text-muted-foreground">Temporary password (min 8 chars)</label>
-                <input type="text" className={inputCls} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="They change it on first login" required />
+                <label className="text-xs font-medium text-muted-foreground">
+                  Temporary password (min 8 chars)
+                </label>
+                <input
+                  type="text"
+                  className={inputCls}
+                  value={form.password}
+                  onChange={(e) => setForm({ ...form, password: e.target.value })}
+                  placeholder="They change it on first login"
+                  required
+                />
               </div>
             )}
             <div>
               <label className="text-xs font-medium text-muted-foreground">Status</label>
-              <select className={inputCls} value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+              <select
+                className={inputCls}
+                value={form.status}
+                onChange={(e) => setForm({ ...form, status: e.target.value })}
+              >
                 <option value="ACTIVE">Active</option>
                 <option value="INACTIVE">Inactive</option>
               </select>
@@ -422,8 +500,15 @@ export default function UsersPage() {
               <label className="text-xs font-medium text-muted-foreground">Roles</label>
               <div className="mt-1 grid grid-cols-2 gap-1.5 max-h-40 overflow-y-auto rounded-lg border border-border p-2">
                 {roles.map((r) => (
-                  <label key={r.id} className="flex items-center gap-2 text-sm cursor-pointer rounded px-1.5 py-1 hover:bg-muted/40">
-                    <input type="checkbox" checked={form.roleIds.includes(r.id)} onChange={() => toggleRole(r.id)} />
+                  <label
+                    key={r.id}
+                    className="flex items-center gap-2 text-sm cursor-pointer rounded px-1.5 py-1 hover:bg-muted/40"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={form.roleIds.includes(r.id)}
+                      onChange={() => toggleRole(r.id)}
+                    />
                     {r.name}
                   </label>
                 ))}
@@ -431,10 +516,18 @@ export default function UsersPage() {
             </div>
             {formError && <p className="text-xs text-red-500">{formError}</p>}
             <div className="flex justify-end gap-2 pt-1">
-              <button type="button" onClick={() => setShowForm(false)} className="h-9 px-3 rounded-lg text-sm text-muted-foreground hover:bg-muted">
+              <button
+                type="button"
+                onClick={() => setShowForm(false)}
+                className="h-9 px-3 rounded-lg text-sm text-muted-foreground hover:bg-muted"
+              >
                 Cancel
               </button>
-              <button type="submit" disabled={saving} className="h-9 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 disabled:opacity-60 inline-flex items-center gap-2">
+              <button
+                type="submit"
+                disabled={saving}
+                className="h-9 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 disabled:opacity-60 inline-flex items-center gap-2"
+              >
                 {saving && <Loader2 className="h-4 w-4 animate-spin" />}
                 {editing ? 'Save changes' : 'Create user'}
               </button>
@@ -448,12 +541,29 @@ export default function UsersPage() {
         <Overlay onClose={() => setResetFor(null)}>
           <h2 className="text-base font-semibold text-foreground mb-1">Reset Password</h2>
           <p className="text-xs text-muted-foreground mb-3">
-            Set a new temporary password for <strong>{resetFor.fullName}</strong>. They will be asked to change it at next login.
+            Set a new temporary password for <strong>{resetFor.fullName}</strong>. They will be
+            asked to change it at next login.
           </p>
-          <input type="text" className={inputCls} value={resetPassword} onChange={(e) => setResetPassword(e.target.value)} placeholder="New password (min 8 chars)" />
+          <input
+            type="text"
+            className={inputCls}
+            value={resetPassword}
+            onChange={(e) => setResetPassword(e.target.value)}
+            placeholder="New password (min 8 chars)"
+          />
           <div className="flex justify-end gap-2 mt-4">
-            <button onClick={() => setResetFor(null)} className="h-9 px-3 rounded-lg text-sm text-muted-foreground hover:bg-muted">Cancel</button>
-            <button onClick={doReset} className="h-9 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90">Reset</button>
+            <button
+              onClick={() => setResetFor(null)}
+              className="h-9 px-3 rounded-lg text-sm text-muted-foreground hover:bg-muted"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={doReset}
+              className="h-9 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90"
+            >
+              Reset
+            </button>
           </div>
         </Overlay>
       )}
@@ -463,11 +573,22 @@ export default function UsersPage() {
         <Overlay onClose={() => setDeleteFor(null)}>
           <h2 className="text-base font-semibold text-foreground mb-1">Delete User</h2>
           <p className="text-xs text-muted-foreground mb-4">
-            Permanently delete <strong>{deleteFor.fullName}</strong> ({deleteFor.email})? This cannot be undone.
+            Permanently delete <strong>{deleteFor.fullName}</strong> ({deleteFor.email})? This
+            cannot be undone.
           </p>
           <div className="flex justify-end gap-2">
-            <button onClick={() => setDeleteFor(null)} className="h-9 px-3 rounded-lg text-sm text-muted-foreground hover:bg-muted">Cancel</button>
-            <button onClick={doDelete} className="h-9 px-4 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700">Delete</button>
+            <button
+              onClick={() => setDeleteFor(null)}
+              className="h-9 px-3 rounded-lg text-sm text-muted-foreground hover:bg-muted"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={doDelete}
+              className="h-9 px-4 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700"
+            >
+              Delete
+            </button>
           </div>
         </Overlay>
       )}

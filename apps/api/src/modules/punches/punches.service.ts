@@ -47,6 +47,8 @@ export interface PunchLogItem {
   punchTimeUtc: string;
   receivedAt: string;
   source: string;
+  syncMode: string; // 'AUTOMATIC' | 'MANUAL'
+  syncJobId?: number | null;
   cardNo?: string;
   fingerprint: string;
 }
@@ -571,6 +573,8 @@ export class PunchesService implements OnModuleInit, OnModuleDestroy {
         a.punch_time_utc,
         a.received_at,
         a.source,
+        a.sync_mode,
+        a.sync_job_id,
         a.event_fingerprint,
         d.device_code,
         d.name AS device_name,
@@ -611,6 +615,8 @@ export class PunchesService implements OnModuleInit, OnModuleDestroy {
         punchTimeUtc: r.punch_time_utc ? new Date(r.punch_time_utc).toISOString() : '',
         receivedAt: r.received_at ? new Date(r.received_at).toISOString() : '',
         source: r.source || 'PUSH',
+        syncMode: r.sync_mode || 'AUTOMATIC',
+        syncJobId: r.sync_job_id ?? null,
         cardNo: (meta['cardNo'] as string) || undefined,
         fingerprint: r.event_fingerprint || '',
       };
@@ -1218,6 +1224,7 @@ export class PunchesService implements OnModuleInit, OnModuleDestroy {
       punchTimeUtc,
       receivedAt: now.toISOString(),
       source: dto.source || 'PUSH',
+      syncMode: 'AUTOMATIC',
       cardNo: dto.cardNo,
       fingerprint,
     };

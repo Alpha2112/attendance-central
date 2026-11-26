@@ -58,6 +58,8 @@ export interface PunchRecord {
   punchTimeUtc: string;
   receivedAt: string;
   source: string;
+  syncMode?: string; // 'AUTOMATIC' | 'MANUAL'
+  syncJobId?: number | null;
   cardNo?: string;
   fingerprint: string;
 }
@@ -68,9 +70,9 @@ export default function PunchesPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedVendor, setSelectedVendor] = useState<string>('ALL');
   const [selectedPunchType, setSelectedPunchType] = useState<string>('ALL');
+  const [selectedSyncMode, setSelectedSyncMode] = useState<string>('ALL');
   const [selectedPunch, setSelectedPunch] = useState<PunchRecord | null>(null);
   const [copiedFingerprint, setCopiedFingerprint] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
   const [bannerFeedback, setBannerFeedback] = useState<{
     text: string;
     type: 'success' | 'error' | 'info';
@@ -79,45 +81,72 @@ export default function PunchesPage() {
   const [isPurging, setIsPurging] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
-  // Pagination state
-  const [_cursorTime, setCursorTime] = useState<string | undefined>(undefined);
-  const [_cursorId, setCursorId] = useState<number | undefined>(undefined);
-  const [_nextCursor, setNextCursor] = useState<{ punchTimeUtc: string; id: number } | undefined>(
+  // Pagination state (keyset)
+  const [nextCursor, setNextCursor] = useState<{ punchTimeUtc: string; id: number } | undefined>(
     undefined,
   );
+  const [total, setTotal] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const PAGE_SIZE = 50;
 
   const fetchPunches = useCallback(
-    async (cTime?: string, cId?: number) => {
-      setLoading(true);
+    async (cursor?: { punchTimeUtc: string; id: number }) => {
+      const append = !!cursor;
+      if (append) setLoadingMore(true);
+      else setLoading(true);
       try {
         const params = new URLSearchParams();
         if (searchTerm) params.set('search', searchTerm);
-        if (cTime && cId) {
-          params.set('cursorTime', cTime);
-          params.set('cursorId', String(cId));
+        if (cursor) {
+          params.set('cursorTime', cursor.punchTimeUtc);
+          params.set('cursorId', String(cursor.id));
         }
-        params.set('limit', '30');
+        params.set('limit', String(PAGE_SIZE));
 
         const res = await fetch(`/api/punches?${params.toString()}`);
         if (res.ok) {
           const data = await res.json();
           if (data.items) {
-            setPunches(data.items);
+            setPunches((prev) => (append ? [...prev, ...data.items] : data.items));
             setNextCursor(data.nextCursor);
+            if (typeof data.total === 'number') setTotal(data.total);
           }
         }
       } catch {
         // transient fetch fallback
       } finally {
-        setLoading(false);
+        if (append) setLoadingMore(false);
+        else setLoading(false);
       }
     },
     [searchTerm],
   );
 
+  const loadMore = () => {
+    if (nextCursor && !loadingMore) fetchPunches(nextCursor);
+  };
+
   useEffect(() => {
     fetchPunches();
   }, [fetchPunches]);
+
+  // Drawer UX: Escape closes an open drawer and the body scroll is locked.
+  useEffect(() => {
+    const anyOpen = selectedPunch !== null || isPurgeModalOpen;
+    if (!anyOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      setSelectedPunch(null);
+      if (!isPurging) setIsPurgeModalOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [selectedPunch, isPurgeModalOpen, isPurging]);
 
   const showBanner = (text: string, type: 'success' | 'error' | 'info' = 'success') => {
     setBannerFeedback({ text, type });
@@ -128,43 +157,7 @@ export default function PunchesPage() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    setCursorTime(undefined);
-    setCursorId(undefined);
     fetchPunches();
-  };
-
-  const handleSyncRealTerminal = async () => {
-    setIsSyncing(true);
-    try {
-      // Device is resolved server-side from the registry (no hard-coded code).
-      const res = await fetch('/api/punches/sync', { method: 'POST' });
-      const data = await res.json();
-      if (data.deviceCount === 0) {
-        showBanner(
-          'ℹ No pull-based (Hikvision) terminal is registered. Suprema terminals stream live and back-fill automatically on reconnect.',
-          'info',
-        );
-      } else if (data.success) {
-        showBanner(
-          `⚡ Synced ${data.deviceCount} terminal(s): ${data.newCount} new punch(es) ingested, ${data.duplicateCount} duplicate(s) rejected.`,
-          'success',
-        );
-        fetchPunches();
-      } else {
-        const failed = Array.isArray(data.results)
-          ? data.results.filter((r: { success: boolean }) => !r.success)
-          : [];
-        const detail = failed.length
-          ? failed.map((r: { deviceCode: string }) => r.deviceCode).join(', ')
-          : data.message || 'Unknown error';
-        showBanner(`❌ Sync failed for: ${detail}`, 'error');
-        fetchPunches();
-      }
-    } catch {
-      showBanner('❌ Failed to connect to terminal for live event sync.', 'error');
-    } finally {
-      setIsSyncing(false);
-    }
   };
 
   const handlePurgeAll = async () => {
@@ -196,6 +189,7 @@ export default function PunchesPage() {
       const res = await fetch(`/api/punches/${id}`, { method: 'DELETE' });
       if (res.ok) {
         setPunches((prev) => prev.filter((p) => p.id !== id));
+        setTotal((t) => Math.max(0, t - 1));
         showBanner(`✔ Punch log #${id} deleted from database.`, 'success');
       } else {
         showBanner(`❌ Failed to delete punch log #${id}.`, 'error');
@@ -209,7 +203,7 @@ export default function PunchesPage() {
 
   const handleReemitToKafka = async (p: PunchRecord) => {
     try {
-      const res = await fetch(`/api/punches/${p.id}?action=reemit`, { method: 'POST' });
+      const res = await fetch(`/api/punches/${p.id}/reemit`, { method: 'POST' });
       const data = await res.json();
       if (res.ok && data.success) {
         showBanner(
@@ -245,6 +239,7 @@ export default function PunchesPage() {
       'Punch Time Local',
       'Punch Time UTC',
       'Source',
+      'Sync Mode',
       'SHA256 Fingerprint',
     ];
 
@@ -261,6 +256,7 @@ export default function PunchesPage() {
       `"${p.punchTime}"`,
       p.punchTimeUtc,
       p.source,
+      p.syncMode === 'MANUAL' ? 'Manual' : 'Automatic',
       p.fingerprint,
     ]);
 
@@ -279,6 +275,8 @@ export default function PunchesPage() {
   const filteredPunches = punches.filter((p) => {
     if (selectedVendor !== 'ALL' && p.vendor !== selectedVendor) return false;
     if (selectedPunchType !== 'ALL' && p.punchType !== selectedPunchType) return false;
+    if (selectedSyncMode !== 'ALL' && (p.syncMode || 'AUTOMATIC') !== selectedSyncMode)
+      return false;
     return true;
   });
 
@@ -335,19 +333,6 @@ export default function PunchesPage() {
             <RefreshCw className={`h-4 w-4 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
-
-          <Can perm="punches.sync">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleSyncRealTerminal}
-              disabled={isSyncing}
-              className="bg-blue-500/10 border-blue-500/30 hover:bg-blue-500/20 text-blue-600 dark:text-blue-400 font-medium"
-            >
-              <Zap className={`h-4 w-4 mr-1.5 ${isSyncing ? 'animate-pulse' : ''}`} />
-              {isSyncing ? 'Syncing...' : 'Sync Real Terminal'}
-            </Button>
-          </Can>
 
           <Can perm="punches.export">
             <Button
@@ -444,6 +429,28 @@ export default function PunchesPage() {
               </button>
             ))}
           </div>
+
+          {/* Sync Mode Filter */}
+          <div className="flex items-center rounded-lg border border-border/60 bg-card/40 p-1 text-xs">
+            <span className="px-2 text-muted-foreground font-semibold">Sync:</span>
+            {[
+              ['ALL', 'All'],
+              ['AUTOMATIC', 'Automatic'],
+              ['MANUAL', 'Manual'],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                onClick={() => setSelectedSyncMode(value)}
+                className={`px-2.5 py-1 rounded-md transition-colors ${
+                  selectedSyncMode === value
+                    ? 'bg-primary text-primary-foreground font-semibold shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -461,7 +468,8 @@ export default function PunchesPage() {
               </CardDescription>
             </div>
             <Badge variant="outline" className="font-mono text-xs bg-muted/40">
-              {filteredPunches.length} Records Shown
+              {punches.length}
+              {total ? ` of ${total}` : ''} loaded
             </Badge>
           </div>
         </CardHeader>
@@ -469,34 +477,52 @@ export default function PunchesPage() {
           <Table>
             <TableHeader>
               <TableRow className="border-border/40 hover:bg-transparent text-xs">
-                <TableHead className="w-[220px]">Employee</TableHead>
+                <TableHead className="w-[200px]">Employee</TableHead>
+                <TableHead>Department</TableHead>
                 <TableHead>Terminal & Vendor</TableHead>
                 <TableHead className="text-center">Verification</TableHead>
                 <TableHead>Local Time</TableHead>
                 <TableHead>Source</TableHead>
-                <TableHead>Fingerprint</TableHead>
+                <TableHead>Sync</TableHead>
                 <TableHead className="text-right w-[90px]">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-40 text-center text-muted-foreground">
+                  <TableCell colSpan={8} className="h-40 text-center text-muted-foreground">
                     <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2 opacity-50" />
                     Querying partitioned records from database...
                   </TableCell>
                 </TableRow>
               ) : filteredPunches.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-48 text-center text-muted-foreground">
+                  <TableCell colSpan={8} className="h-48 text-center text-muted-foreground">
                     <div className="max-w-md mx-auto space-y-2">
                       <FingerprintIcon className="h-10 w-10 mx-auto text-muted-foreground/40" />
-                      <div className="font-semibold text-foreground">No Punch Logs in Database</div>
-                      <div className="text-xs text-muted-foreground">
-                        Ready for testing! Present your face, card, or fingerprint on a registered
-                        terminal, then click <strong>Sync Real Terminal</strong> (Hikvision) or watch
-                        the Live Stream. Suprema terminals stream live automatically.
-                      </div>
+                      {punches.length > 0 ? (
+                        <>
+                          <div className="font-semibold text-foreground">
+                            No records match your filters
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            Clear the Vendor, Type, Sync, or search filters — or{' '}
+                            <strong>Load more</strong> below to pull older pages (manually-synced
+                            punches are often older than the latest page).
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="font-semibold text-foreground">
+                            No Punch Logs in Database
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            Ready for testing! Present your face, card, or fingerprint on a
+                            registered terminal, then use <strong>Manual Sync</strong> (Hikvision)
+                            or watch the Live Stream. Suprema terminals stream live automatically.
+                          </div>
+                        </>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -508,10 +534,9 @@ export default function PunchesPage() {
                   >
                     <TableCell>
                       <div className="font-medium text-foreground">{p.employeeName}</div>
-                      <div className="text-xs text-muted-foreground font-mono">
-                        {p.employeeId} <span className="opacity-40">•</span> {p.department}
-                      </div>
+                      <div className="text-xs text-muted-foreground font-mono">{p.employeeId}</div>
                     </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{p.department}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <Badge
@@ -556,9 +581,21 @@ export default function PunchesPage() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <span className="font-mono text-xs text-muted-foreground">
-                        {p.fingerprint ? `${p.fingerprint.slice(0, 16)}...` : '—'}
-                      </span>
+                      {p.syncMode === 'MANUAL' ? (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] font-semibold bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/30"
+                        >
+                          Manual
+                        </Badge>
+                      ) : (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] font-semibold bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/30"
+                        >
+                          Automatic
+                        </Badge>
+                      )}
                     </TableCell>
 
                     {/* Action Buttons (Dropdown Menu) */}
@@ -615,6 +652,7 @@ export default function PunchesPage() {
                           {/* Re-emit to Kafka */}
                           <DropdownMenuItem
                             onClick={() => handleReemitToKafka(p)}
+                            title="Re-publish this exact punch onto the Kafka event backbone (topic attendance.normalized.v1) so downstream consumers can re-process it. Idempotent — the SHA-256 fingerprint is preserved, so replays never create duplicates."
                             className="text-xs cursor-pointer focus:bg-amber-500/10 focus:text-amber-400"
                           >
                             <Zap className="h-3.5 w-3.5 mr-2 text-amber-400" />
@@ -640,116 +678,168 @@ export default function PunchesPage() {
               )}
             </TableBody>
           </Table>
+
+          {!loading && (nextCursor || punches.length > 0) && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-2 p-4 border-t border-border/40">
+              <span className="text-[11px] text-muted-foreground">
+                Showing {filteredPunches.length} of {punches.length} loaded
+                {total ? ` · ${total} total in database` : ''}
+              </span>
+              {nextCursor ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={loadMore}
+                  disabled={loadingMore}
+                  className="text-xs"
+                >
+                  {loadingMore ? (
+                    <>
+                      <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Loading…
+                    </>
+                  ) : (
+                    <>Load more{total ? ` (${Math.max(0, total - punches.length)} older)` : ''}</>
+                  )}
+                </Button>
+              ) : (
+                <span className="text-[11px] text-muted-foreground italic">End of records</span>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 
-      {/* Audit Record Inspector Modal */}
+      {/* Audit Record Inspector Drawer */}
       {selectedPunch && (
-        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-card border border-border/80 rounded-xl shadow-2xl max-w-2xl w-full p-6 space-y-5 animate-in fade-in zoom-in-95">
-            <div className="flex items-center justify-between border-b border-border/40 pb-4">
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200"
+            onClick={() => setSelectedPunch(null)}
+            aria-hidden="true"
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Attendance audit record inspector"
+            className="relative h-full w-full max-w-xl bg-card border-l border-border shadow-2xl flex flex-col animate-in slide-in-from-right-[100%] duration-300 ease-out"
+          >
+            <div className="p-4 border-b border-border/60 flex items-center justify-between bg-muted/20 shrink-0">
               <div className="flex items-center gap-3">
                 <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
                   <Shield className="h-5 w-5" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-foreground text-base">
+                  <h3 className="font-semibold text-foreground text-sm">
                     Attendance Audit Record Inspector
                   </h3>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-[11px] text-muted-foreground">
                     Row ID: <span className="font-mono text-foreground">{selectedPunch.id}</span> •
                     Partition:{' '}
                     <span className="font-mono text-foreground">{selectedPunch.eventDate}</span>
                   </p>
                 </div>
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
+              <button
                 onClick={() => setSelectedPunch(null)}
-                className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                aria-label="Close"
+                className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
               >
                 <X className="h-4 w-4" />
-              </Button>
+              </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 text-xs">
-              <div className="p-3.5 rounded-lg bg-muted/20 border border-border/40 space-y-1">
-                <div className="text-muted-foreground font-semibold">RESOLVED IDENTITY</div>
-                <div className="font-bold text-foreground text-sm">
-                  {selectedPunch.employeeName}
-                </div>
-                <div className="text-muted-foreground font-mono">
-                  External ID: {selectedPunch.employeeId}
-                </div>
-                <div className="text-muted-foreground">Department: {selectedPunch.department}</div>
-                {selectedPunch.cardNo && (
-                  <div className="text-muted-foreground font-mono">
-                    Badge Card: {selectedPunch.cardNo}
+            <div className="flex-1 overflow-y-auto p-4 space-y-5">
+              <div className="grid grid-cols-2 gap-4 text-xs">
+                <div className="p-3.5 rounded-lg bg-muted/20 border border-border/40 space-y-1">
+                  <div className="text-muted-foreground font-semibold">RESOLVED IDENTITY</div>
+                  <div className="font-bold text-foreground text-sm">
+                    {selectedPunch.employeeName}
                   </div>
-                )}
-              </div>
-
-              <div className="p-3.5 rounded-lg bg-muted/20 border border-border/40 space-y-1">
-                <div className="text-muted-foreground font-semibold">HARDWARE ORIGIN</div>
-                <div className="font-bold text-foreground text-sm">{selectedPunch.deviceName}</div>
-                <div className="text-muted-foreground font-mono">
-                  Device Code: {selectedPunch.deviceCode}
+                  <div className="text-muted-foreground font-mono">
+                    External ID: {selectedPunch.employeeId}
+                  </div>
+                  <div className="text-muted-foreground">
+                    Department: {selectedPunch.department}
+                  </div>
+                  {selectedPunch.cardNo && (
+                    <div className="text-muted-foreground font-mono">
+                      Badge Card: {selectedPunch.cardNo}
+                    </div>
+                  )}
                 </div>
-                <div className="text-muted-foreground">Vendor: {selectedPunch.vendor} (ISAPI)</div>
-                <div className="text-muted-foreground">Ingestion Mode: {selectedPunch.source}</div>
+
+                <div className="p-3.5 rounded-lg bg-muted/20 border border-border/40 space-y-1">
+                  <div className="text-muted-foreground font-semibold">HARDWARE ORIGIN</div>
+                  <div className="font-bold text-foreground text-sm">
+                    {selectedPunch.deviceName}
+                  </div>
+                  <div className="text-muted-foreground font-mono">
+                    Device Code: {selectedPunch.deviceCode}
+                  </div>
+                  <div className="text-muted-foreground">
+                    Vendor: {selectedPunch.vendor} (ISAPI)
+                  </div>
+                  <div className="text-muted-foreground">
+                    Ingestion Mode: {selectedPunch.source}
+                  </div>
+                </div>
+              </div>
+
+              {/* SHA-256 Hash Display */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-muted-foreground">
+                    SHA-256 IDEMPOTENCY FINGERPRINT
+                  </span>
+                  <button
+                    onClick={() => handleCopyFingerprint(selectedPunch.fingerprint)}
+                    className="text-primary hover:underline flex items-center gap-1 text-[11px]"
+                  >
+                    {copiedFingerprint ? (
+                      <Check className="h-3 w-3" />
+                    ) : (
+                      <Copy className="h-3 w-3" />
+                    )}
+                    {copiedFingerprint ? 'Copied' : 'Copy Hash'}
+                  </button>
+                </div>
+                <div className="p-2.5 rounded-lg bg-background font-mono text-[11px] text-emerald-400 break-all border border-emerald-500/20 select-all">
+                  {selectedPunch.fingerprint}
+                </div>
+              </div>
+
+              {/* MySQL Normalized JSON Snapshot */}
+              <div className="space-y-1.5">
+                <div className="text-xs font-semibold text-muted-foreground">
+                  NORMALIZED MYSQL RECORD SNAPSHOT
+                </div>
+                <pre className="p-3 rounded-lg bg-background text-[11px] font-mono text-muted-foreground overflow-x-auto max-h-48 border border-border/60">
+                  {JSON.stringify(
+                    {
+                      id: selectedPunch.id,
+                      event_date: selectedPunch.eventDate,
+                      employee_id: selectedPunch.employeeId,
+                      device_id: selectedPunch.deviceId,
+                      vendor: selectedPunch.vendor,
+                      punch_type: selectedPunch.punchType,
+                      verification_type: selectedPunch.verificationType,
+                      punch_time_utc: selectedPunch.punchTimeUtc,
+                      received_at: selectedPunch.receivedAt,
+                      event_fingerprint: selectedPunch.fingerprint,
+                    },
+                    null,
+                    2,
+                  )}
+                </pre>
               </div>
             </div>
 
-            {/* SHA-256 Hash Display */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-semibold text-muted-foreground">
-                  SHA-256 IDEMPOTENCY FINGERPRINT
-                </span>
-                <button
-                  onClick={() => handleCopyFingerprint(selectedPunch.fingerprint)}
-                  className="text-primary hover:underline flex items-center gap-1 text-[11px]"
-                >
-                  {copiedFingerprint ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-                  {copiedFingerprint ? 'Copied' : 'Copy Hash'}
-                </button>
-              </div>
-              <div className="p-2.5 rounded-lg bg-background font-mono text-[11px] text-emerald-400 break-all border border-emerald-500/20 select-all">
-                {selectedPunch.fingerprint}
-              </div>
-            </div>
-
-            {/* MySQL Normalized JSON Snapshot */}
-            <div className="space-y-1.5">
-              <div className="text-xs font-semibold text-muted-foreground">
-                NORMALIZED MYSQL RECORD SNAPSHOT
-              </div>
-              <pre className="p-3 rounded-lg bg-background text-[11px] font-mono text-muted-foreground overflow-x-auto max-h-48 border border-border/60">
-                {JSON.stringify(
-                  {
-                    id: selectedPunch.id,
-                    event_date: selectedPunch.eventDate,
-                    employee_id: selectedPunch.employeeId,
-                    device_id: selectedPunch.deviceId,
-                    vendor: selectedPunch.vendor,
-                    punch_type: selectedPunch.punchType,
-                    verification_type: selectedPunch.verificationType,
-                    punch_time_utc: selectedPunch.punchTimeUtc,
-                    received_at: selectedPunch.receivedAt,
-                    event_fingerprint: selectedPunch.fingerprint,
-                  },
-                  null,
-                  2,
-                )}
-              </pre>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2 border-t border-border/40">
+            <div className="border-t border-border/60 bg-muted/20 p-3 flex justify-end gap-2 shrink-0">
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => handleReemitToKafka(selectedPunch)}
+                title="Re-publish this punch onto the Kafka event backbone (topic attendance.normalized.v1) so downstream consumers can re-process it. Idempotent — the SHA-256 fingerprint is preserved, so replays never create duplicates."
                 className="text-xs text-amber-400 border-amber-500/30 hover:bg-amber-500/10"
               >
                 <Zap className="h-3.5 w-3.5 mr-1" />
@@ -768,27 +858,48 @@ export default function PunchesPage() {
         </div>
       )}
 
-      {/* Clear / Purge Confirmation Modal */}
+      {/* Clear / Purge Confirmation Drawer */}
       {isPurgeModalOpen && (
-        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-card border border-border/80 rounded-xl shadow-2xl max-w-md w-full p-6 space-y-4 animate-in fade-in zoom-in-95">
-            <div className="flex items-center gap-3 text-rose-400">
-              <div className="p-2 rounded-lg bg-rose-500/10 border border-rose-500/20">
-                <Trash2 className="h-5 w-5" />
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200"
+            onClick={() => !isPurging && setIsPurgeModalOpen(false)}
+            aria-hidden="true"
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Clear all punch logs"
+            className="relative h-full w-full max-w-md bg-card border-l border-border shadow-2xl flex flex-col animate-in slide-in-from-right-[100%] duration-300 ease-out"
+          >
+            <div className="p-4 border-b border-border/60 flex items-center justify-between bg-muted/20 shrink-0">
+              <div className="flex items-center gap-3 text-rose-400">
+                <div className="p-2 rounded-lg bg-rose-500/10 border border-rose-500/20">
+                  <Trash2 className="h-5 w-5" />
+                </div>
+                <h3 className="font-bold text-foreground text-sm">Clear All Punch Logs</h3>
               </div>
-              <h3 className="font-bold text-foreground text-base">Clear All Punch Logs</h3>
+              <button
+                onClick={() => !isPurging && setIsPurgeModalOpen(false)}
+                aria-label="Close"
+                className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              This will purge all stored punch records from partitioned MySQL tables (
-              <code className="text-foreground">attendance_logs</code> and{' '}
-              <code className="text-foreground">raw_punch_logs</code>) and reset the terminal
-              checkpoint.
-              <br />
-              <br />
-              This gives you a completely clean slate to test fresh punches on your real Hikvision
-              device.
-            </p>
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-border/40">
+            <div className="flex-1 overflow-y-auto p-4">
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                This will purge all stored punch records from partitioned MySQL tables (
+                <code className="text-foreground">attendance_logs</code> and{' '}
+                <code className="text-foreground">raw_punch_logs</code>) and reset the terminal
+                checkpoint.
+                <br />
+                <br />
+                This gives you a completely clean slate to test fresh punches on your real Hikvision
+                device.
+              </p>
+            </div>
+            <div className="border-t border-border/60 bg-muted/20 p-3 flex items-center justify-end gap-2 shrink-0">
               <Button
                 variant="ghost"
                 size="sm"

@@ -13,13 +13,19 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { PunchesService, type PunchLogItem } from './punches.service.js';
+import { ManualSyncService } from './manual-sync.service.js';
 import { PunchQueryDto, IngestPunchDto } from './dto/punch-query.dto.js';
-import { RequirePermissions, Public } from '../auth/decorators.js';
+import { ManualSyncFetchDto, ManualSyncCommitDto } from './dto/manual-sync.dto.js';
+import { RequirePermissions, Public, CurrentUser } from '../auth/decorators.js';
+import { type AuthUser } from '../auth/auth.types.js';
 
 @ApiTags('Attendance & Punch Logs')
 @Controller(['punches', 'api/v1/punches'])
 export class PunchesController {
-  constructor(@Inject(PunchesService) private readonly punchesService: PunchesService) {}
+  constructor(
+    @Inject(PunchesService) private readonly punchesService: PunchesService,
+    @Inject(ManualSyncService) private readonly manualSyncService: ManualSyncService,
+  ) {}
 
   @Get()
   @RequirePermissions('punches.view')
@@ -50,6 +56,42 @@ export class PunchesController {
     return this.punchesService.syncAllPullDevices();
   }
 
+  @Post('sync/fetch')
+  @RequirePermissions('punches.manual_sync')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Manual sync — FETCH punch candidates from a terminal for a date range (no write)',
+  })
+  @ApiResponse({ status: 200, description: 'Normalized, validated candidates (nothing persisted)' })
+  public async manualFetch(@Body() dto: ManualSyncFetchDto, @CurrentUser() user: AuthUser) {
+    return this.manualSyncService.fetch(dto.deviceId, dto.from, dto.to, user.email);
+  }
+
+  @Post('sync/commit')
+  @RequirePermissions('punches.manual_sync')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Manual sync — COMMIT selected candidates as MANUAL attendance rows' })
+  @ApiResponse({ status: 200, description: 'Idempotent commit summary + per-row results' })
+  public async manualCommit(@Body() dto: ManualSyncCommitDto, @CurrentUser() user: AuthUser) {
+    return this.manualSyncService.commit(dto.jobId, dto.rows, user.email);
+  }
+
+  @Get('sync/jobs')
+  @RequirePermissions('punches.manual_sync')
+  @ApiOperation({ summary: 'List manual synchronization jobs (audit/history)' })
+  @ApiResponse({ status: 200, description: 'Manual sync job history, newest first' })
+  public async listSyncJobs(
+    @Query('deviceId') deviceId?: string,
+    @Query('status') status?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.manualSyncService.listJobs({
+      deviceId: deviceId ? Number(deviceId) : undefined,
+      status: status || undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
+
   @Post('sync/:deviceId')
   @RequirePermissions('punches.sync')
   @HttpCode(HttpStatus.OK)
@@ -74,7 +116,7 @@ export class PunchesController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'HTTP Push Receiver for Hikvision Alarm Center / Listening Host' })
   @ApiResponse({ status: 200, description: 'Acknowledged push event' })
-  public async handleHikvisionPush(@Body() payload: any) {
+  public async handleHikvisionPush(@Body() payload: unknown) {
     return this.punchesService.handleHikvisionPush(payload);
   }
 

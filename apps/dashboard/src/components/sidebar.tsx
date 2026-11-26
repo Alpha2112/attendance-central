@@ -12,6 +12,7 @@ import {
   ShieldAlert,
   Activity,
   FileText,
+  DownloadCloud,
   Settings as SettingsIcon,
   Layers,
   Building2,
@@ -47,6 +48,7 @@ const navSections: { title: string; items: NavItem[] }[] = [
         permission: 'punches.view',
       },
       { name: 'Punch Logs', href: '/punches', icon: FileText, permission: 'punches.view' },
+      { name: 'Manual Sync', href: '/sync', icon: DownloadCloud, permission: 'punches.manual_sync' },
     ],
   },
   {

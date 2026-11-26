@@ -34,7 +34,9 @@ const MOCK_HOSTS = new Set([
   'mock-biostar',
   'mock-gateway',
 ]);
-const FETCH_LIMIT = 50;
+// Suprema device event-log IDs grow large over time; use a big page so a full-log
+// scan (e.g. a manual historical sync) reaches recent punches in few round-trips.
+const FETCH_LIMIT = 256;
 
 /**
  * Enterprise Suprema adapter backed by the official **Suprema G-SDK Device Gateway**.

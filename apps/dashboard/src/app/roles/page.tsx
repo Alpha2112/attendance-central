@@ -37,11 +37,38 @@ interface Permission {
 }
 type Toast = { text: string; type: 'success' | 'error' };
 
-function Overlay({ children, onClose, wide }: { children: React.ReactNode; onClose: () => void; wide?: boolean }) {
+function Overlay({
+  children,
+  onClose,
+  wide,
+}: {
+  children: React.ReactNode;
+  onClose: () => void;
+  wide?: boolean;
+}) {
+  // Side-drawer chrome: Escape closes it and the body scroll is locked while open.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [onClose]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex justify-end bg-black/70 backdrop-blur-sm animate-in fade-in duration-200"
+      onClick={onClose}
+    >
       <div
-        className={`w-full ${wide ? 'max-w-3xl' : 'max-w-lg'} max-h-[85vh] overflow-y-auto rounded-2xl border border-border bg-card p-5 shadow-xl`}
+        role="dialog"
+        aria-modal="true"
+        className={`relative h-full w-full ${wide ? 'max-w-3xl' : 'max-w-lg'} overflow-y-auto border-l border-border bg-card p-5 shadow-2xl animate-in slide-in-from-right-[100%] duration-300 ease-out`}
         onClick={(e) => e.stopPropagation()}
       >
         {children}
@@ -134,7 +161,12 @@ export default function RolesPage() {
         const res = await fetch('/api/roles', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code: form.code, name: form.name, description: form.description, permissionIds: [] }),
+          body: JSON.stringify({
+            code: form.code,
+            name: form.name,
+            description: form.description,
+            permissionIds: [],
+          }),
         });
         if (!res.ok) throw new Error((await res.json())?.error?.message || 'Create failed.');
         flash('Role created. Assign its permissions next.', 'success');
@@ -226,7 +258,11 @@ export default function RolesPage() {
               : 'bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-300'
           }`}
         >
-          {toast.type === 'success' ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+          {toast.type === 'success' ? (
+            <CheckCircle2 className="h-4 w-4" />
+          ) : (
+            <AlertCircle className="h-4 w-4" />
+          )}
           {toast.text}
         </div>
       )}
@@ -242,14 +278,19 @@ export default function RolesPage() {
           </p>
         </div>
         <Can perm="roles.create">
-          <button onClick={openCreate} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 h-9 text-sm font-semibold text-primary-foreground hover:opacity-90">
+          <button
+            onClick={openCreate}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 h-9 text-sm font-semibold text-primary-foreground hover:opacity-90"
+          >
             <Plus className="h-4 w-4" /> Create Role
           </button>
         </Can>
       </div>
 
       {loading ? (
-        <div className="py-20 text-center text-muted-foreground"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></div>
+        <div className="py-20 text-center text-muted-foreground">
+          <Loader2 className="h-6 w-6 animate-spin mx-auto" />
+        </div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {roles.map((r) => (
@@ -267,25 +308,40 @@ export default function RolesPage() {
                   <code className="text-[11px] text-muted-foreground font-mono">{r.code}</code>
                 </div>
               </div>
-              <p className="mt-2 text-xs text-muted-foreground flex-1 min-h-[2.5rem]">{r.description || '—'}</p>
+              <p className="mt-2 text-xs text-muted-foreground flex-1 min-h-[2.5rem]">
+                {r.description || '—'}
+              </p>
               <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground">
-                <span className="inline-flex items-center gap-1"><SlidersHorizontal className="h-3.5 w-3.5" /> {r.permissionCount} perms</span>
-                <span className="inline-flex items-center gap-1"><UsersIcon className="h-3.5 w-3.5" /> {r.userCount} users</span>
+                <span className="inline-flex items-center gap-1">
+                  <SlidersHorizontal className="h-3.5 w-3.5" /> {r.permissionCount} perms
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <UsersIcon className="h-3.5 w-3.5" /> {r.userCount} users
+                </span>
               </div>
               <div className="mt-3 flex items-center gap-1 border-t border-border/60 pt-3">
                 <Can perm="roles.assign_permissions">
-                  <button onClick={() => openPermissions(r)} className="inline-flex items-center gap-1 rounded-lg px-2 h-8 text-xs font-medium text-primary hover:bg-primary/10">
+                  <button
+                    onClick={() => openPermissions(r)}
+                    className="inline-flex items-center gap-1 rounded-lg px-2 h-8 text-xs font-medium text-primary hover:bg-primary/10"
+                  >
                     <SlidersHorizontal className="h-3.5 w-3.5" /> Permissions
                   </button>
                 </Can>
                 <Can perm="roles.edit">
-                  <button onClick={() => openEdit(r)} className="inline-flex items-center gap-1 rounded-lg px-2 h-8 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground">
+                  <button
+                    onClick={() => openEdit(r)}
+                    className="inline-flex items-center gap-1 rounded-lg px-2 h-8 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+                  >
                     <Pencil className="h-3.5 w-3.5" /> Edit
                   </button>
                 </Can>
                 {!r.isSystem && (
                   <Can perm="roles.delete">
-                    <button onClick={() => setDeleteFor(r)} className="ml-auto inline-flex items-center gap-1 rounded-lg px-2 h-8 text-xs font-medium text-muted-foreground hover:bg-red-500/10 hover:text-red-500">
+                    <button
+                      onClick={() => setDeleteFor(r)}
+                      className="ml-auto inline-flex items-center gap-1 rounded-lg px-2 h-8 text-xs font-medium text-muted-foreground hover:bg-red-500/10 hover:text-red-500"
+                    >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </Can>
@@ -300,28 +356,61 @@ export default function RolesPage() {
       {showForm && (
         <Overlay onClose={() => setShowForm(false)}>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-base font-semibold text-foreground">{editing ? 'Edit Role' : 'Create Role'}</h2>
-            <button onClick={() => setShowForm(false)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+            <h2 className="text-base font-semibold text-foreground">
+              {editing ? 'Edit Role' : 'Create Role'}
+            </h2>
+            <button
+              onClick={() => setShowForm(false)}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </div>
           <form onSubmit={submitForm} className="space-y-3">
             {!editing && (
               <div>
                 <label className="text-xs font-medium text-muted-foreground">Code (unique)</label>
-                <input className={inputCls} value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="e.g. AUDITOR" required />
+                <input
+                  className={inputCls}
+                  value={form.code}
+                  onChange={(e) => setForm({ ...form, code: e.target.value })}
+                  placeholder="e.g. AUDITOR"
+                  required
+                />
               </div>
             )}
             <div>
               <label className="text-xs font-medium text-muted-foreground">Name</label>
-              <input className={inputCls} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+              <input
+                className={inputCls}
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                required
+              />
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground">Description</label>
-              <textarea className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm" rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+              <textarea
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                rows={2}
+                value={form.description}
+                onChange={(e) => setForm({ ...form, description: e.target.value })}
+              />
             </div>
             {formError && <p className="text-xs text-red-500">{formError}</p>}
             <div className="flex justify-end gap-2 pt-1">
-              <button type="button" onClick={() => setShowForm(false)} className="h-9 px-3 rounded-lg text-sm text-muted-foreground hover:bg-muted">Cancel</button>
-              <button type="submit" disabled={saving} className="h-9 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 disabled:opacity-60 inline-flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowForm(false)}
+                className="h-9 px-3 rounded-lg text-sm text-muted-foreground hover:bg-muted"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="h-9 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 disabled:opacity-60 inline-flex items-center gap-2"
+              >
                 {saving && <Loader2 className="h-4 w-4 animate-spin" />}
                 {editing ? 'Save' : 'Create'}
               </button>
@@ -334,11 +423,19 @@ export default function RolesPage() {
       {permFor && (
         <Overlay onClose={() => setPermFor(null)} wide>
           <div className="flex items-center justify-between mb-1">
-            <h2 className="text-base font-semibold text-foreground">Permissions — {permFor.name}</h2>
-            <button onClick={() => setPermFor(null)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+            <h2 className="text-base font-semibold text-foreground">
+              Permissions — {permFor.name}
+            </h2>
+            <button
+              onClick={() => setPermFor(null)}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </div>
           <p className="text-xs text-muted-foreground mb-4">
-            Tick the actions this role may perform. Each permission names the page it guards and the action it unlocks.
+            Tick the actions this role may perform. Each permission names the page it guards and the
+            action it unlocks.
           </p>
           {isSuperAdmin && (
             <div className="mb-3 rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
@@ -348,14 +445,18 @@ export default function RolesPage() {
           <div className="space-y-4">
             {[...grouped.entries()].map(([module, pages]) => (
               <div key={module} className="rounded-lg border border-border">
-                <div className="px-3 py-2 bg-muted/30 text-xs font-semibold text-foreground rounded-t-lg">{module}</div>
+                <div className="px-3 py-2 bg-muted/30 text-xs font-semibold text-foreground rounded-t-lg">
+                  {module}
+                </div>
                 <div className="divide-y divide-border/60">
                   {[...pages.entries()].map(([page, perms]) => {
                     const allOn = perms.every((p) => selectedPerms.has(p.id));
                     return (
                       <div key={page} className="p-3">
                         <div className="flex items-center justify-between mb-2">
-                          <span className="text-xs font-semibold text-muted-foreground">{page}</span>
+                          <span className="text-xs font-semibold text-muted-foreground">
+                            {page}
+                          </span>
                           {!isSuperAdmin && (
                             <button
                               onClick={() => togglePage(perms, !allOn)}
@@ -380,7 +481,9 @@ export default function RolesPage() {
                               />
                               <span>
                                 <span className="font-medium text-foreground">{p.name}</span>
-                                <span className="block text-[11px] text-muted-foreground leading-tight">{p.description}</span>
+                                <span className="block text-[11px] text-muted-foreground leading-tight">
+                                  {p.description}
+                                </span>
                               </span>
                             </label>
                           ))}
@@ -397,9 +500,18 @@ export default function RolesPage() {
               {isSuperAdmin ? catalog.length : selectedPerms.size} of {catalog.length} selected
             </span>
             <div className="flex gap-2">
-              <button onClick={() => setPermFor(null)} className="h-9 px-3 rounded-lg text-sm text-muted-foreground hover:bg-muted">Cancel</button>
+              <button
+                onClick={() => setPermFor(null)}
+                className="h-9 px-3 rounded-lg text-sm text-muted-foreground hover:bg-muted"
+              >
+                Cancel
+              </button>
               {!isSuperAdmin && (
-                <button onClick={savePermissions} disabled={permSaving} className="h-9 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 disabled:opacity-60 inline-flex items-center gap-2">
+                <button
+                  onClick={savePermissions}
+                  disabled={permSaving}
+                  className="h-9 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 disabled:opacity-60 inline-flex items-center gap-2"
+                >
                   {permSaving && <Loader2 className="h-4 w-4 animate-spin" />}
                   Save permissions
                 </button>
@@ -414,11 +526,22 @@ export default function RolesPage() {
         <Overlay onClose={() => setDeleteFor(null)}>
           <h2 className="text-base font-semibold text-foreground mb-1">Delete Role</h2>
           <p className="text-xs text-muted-foreground mb-4">
-            Delete <strong>{deleteFor.name}</strong>? Users holding only this role will lose its access. This cannot be undone.
+            Delete <strong>{deleteFor.name}</strong>? Users holding only this role will lose its
+            access. This cannot be undone.
           </p>
           <div className="flex justify-end gap-2">
-            <button onClick={() => setDeleteFor(null)} className="h-9 px-3 rounded-lg text-sm text-muted-foreground hover:bg-muted">Cancel</button>
-            <button onClick={doDelete} className="h-9 px-4 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700">Delete</button>
+            <button
+              onClick={() => setDeleteFor(null)}
+              className="h-9 px-3 rounded-lg text-sm text-muted-foreground hover:bg-muted"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={doDelete}
+              className="h-9 px-4 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700"
+            >
+              Delete
+            </button>
           </div>
         </Overlay>
       )}

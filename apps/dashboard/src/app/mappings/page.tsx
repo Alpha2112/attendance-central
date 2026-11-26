@@ -703,7 +703,7 @@ export default function MappingsPage() {
             {isRefreshing ? 'Refreshing...' : 'Refresh Mappings'}
           </Button>
 
-          <Can perm="mappings.create">
+          <Can perm="mappings.bulk_import">
             <Button variant="outline" size="sm" className="font-medium" asChild>
               <Link href="/mappings/import">
                 <FileSpreadsheet className="h-4 w-4 mr-1.5" />

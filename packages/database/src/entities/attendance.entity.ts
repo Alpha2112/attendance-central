@@ -18,6 +18,8 @@ export interface AttendanceLogEntity extends RowDataPacket {
   verification_type: string;
   clock_offset_seconds: number | null;
   source: string;
+  sync_mode: string; // 'AUTOMATIC' | 'MANUAL'
+  sync_job_id: number | null;
   vendor_event_id: string | null;
   event_fingerprint: string;
   created_at: Date;
@@ -40,6 +42,10 @@ export interface CreateAttendanceLogDto {
   verificationType: string;
   clockOffsetSeconds?: number;
   source?: string;
+  /** 'AUTOMATIC' (default) for poller/realtime, 'MANUAL' for the manual sync workflow. */
+  syncMode?: string;
+  /** Links a manually synced row to its sync_jobs audit record. */
+  syncJobId?: number | null;
   vendorEventId?: string;
   eventFingerprint: string;
 }

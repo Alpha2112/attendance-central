@@ -3,17 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import {
-  Cpu,
-  ArrowLeft,
-  RefreshCw,
-  Clock,
-  CheckCircle2,
-  AlertCircle,
-  Radio,
-  Shield,
-  Zap,
-} from 'lucide-react';
+import { Cpu, ArrowLeft, Clock, CheckCircle2, AlertCircle, Radio, Shield, Zap } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -78,8 +68,6 @@ export default function DeviceDetailPage() {
 
   const [probing, setProbing] = useState(false);
   const [probeResult, setProbeResult] = useState<string | null>(null);
-  const [syncing, setSyncing] = useState(false);
-  const [syncedMsg, setSyncedMsg] = useState<string | null>(null);
 
   const fetchDevice = useCallback(async () => {
     try {
@@ -160,15 +148,6 @@ export default function DeviceDetailPage() {
     }
   };
 
-  const handleTriggerSync = () => {
-    setSyncing(true);
-    setSyncedMsg(null);
-    setTimeout(() => {
-      setSyncing(false);
-      setSyncedMsg('✔ Incremental log sync completed: Biometric events synchronized with Kafka');
-    }, 800);
-  };
-
   return (
     <div className="space-y-6">
       {/* Back Button & Title */}
@@ -200,15 +179,6 @@ export default function DeviceDetailPage() {
             <Zap className={`h-3.5 w-3.5 ${probing ? 'animate-spin' : 'text-amber-400'}`} />
             {probing ? 'Probing...' : 'Live Probe Test'}
           </Button>
-          <Button
-            size="sm"
-            className="h-8 gap-1.5 text-xs bg-primary hover:bg-primary/90 text-primary-foreground"
-            disabled={syncing}
-            onClick={handleTriggerSync}
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
-            {syncing ? 'Syncing...' : 'Trigger Sync'}
-          </Button>
         </div>
       </div>
 
@@ -227,13 +197,6 @@ export default function DeviceDetailPage() {
             <AlertCircle className="h-4 w-4 text-rose-400" />
           )}
           {probeResult}
-        </div>
-      )}
-
-      {syncedMsg && (
-        <div className="p-3 rounded-lg bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 text-xs flex items-center gap-2">
-          <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-          {syncedMsg}
         </div>
       )}
 

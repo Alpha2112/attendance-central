@@ -46,6 +46,7 @@ const PERMISSIONS: PermDef[] = [
   // Punches (Live + Punch Logs)
   { code: 'punches.view', name: 'View Punches', description: 'View the Live Punch Stream and Historical Punch Logs.', module: 'Core Platform', page: 'Punch Logs', action: 'view' },
   { code: 'punches.sync', name: 'Sync Terminal', description: 'Trigger a manual "Sync Real Terminal" pull from a device.', module: 'Core Platform', page: 'Punch Logs', action: 'sync' },
+  { code: 'punches.manual_sync', name: 'Manual Terminal Sync', description: 'Open the Manual Sync page and run the staged workflow — fetch historical punches from a terminal for a date range, preview/validate, and commit them. Includes the sync history.', module: 'Core Platform', page: 'Manual Sync', action: 'sync' },
   { code: 'punches.simulate', name: 'Simulate Punch', description: 'Inject a simulated punch event for testing.', module: 'Core Platform', page: 'Live Punch Stream', action: 'create' },
   { code: 'punches.export', name: 'Export Punches', description: 'Export punch logs to CSV.', module: 'Core Platform', page: 'Punch Logs', action: 'export' },
   { code: 'punches.delete', name: 'Delete Punch', description: 'Delete an individual punch record.', module: 'Core Platform', page: 'Punch Logs', action: 'delete' },
@@ -63,6 +64,7 @@ const PERMISSIONS: PermDef[] = [
   { code: 'mappings.create', name: 'Create Mapping', description: 'Create a device-to-employee identity mapping.', module: 'Device Fleet', page: 'Identity Mappings', action: 'create' },
   { code: 'mappings.edit', name: 'Edit Mapping', description: 'Edit an existing identity mapping.', module: 'Device Fleet', page: 'Identity Mappings', action: 'edit' },
   { code: 'mappings.delete', name: 'Delete Mapping', description: 'Delete an identity mapping.', module: 'Device Fleet', page: 'Identity Mappings', action: 'delete' },
+  { code: 'mappings.bulk_import', name: 'Bulk Import Mappings', description: 'Open the Bulk Import wizard and import device-to-employee identity mappings in bulk from a CSV file.', module: 'Device Fleet', page: 'Identity Mappings', action: 'create' },
 
   // Organizations & Tenants
   { code: 'organizations.view', name: 'View Organizations', description: 'View registered organizations.', module: 'Outbound & Telemetry', page: 'Organizations & Tenants', action: 'view' },

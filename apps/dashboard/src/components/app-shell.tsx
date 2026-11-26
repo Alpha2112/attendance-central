@@ -14,6 +14,8 @@ const ROUTE_PERMISSIONS: Record<string, string> = {
   '/': 'dashboard.view',
   '/live': 'punches.view',
   '/punches': 'punches.view',
+  '/sync': 'punches.manual_sync',
+  '/mappings/import': 'mappings.bulk_import',
   '/devices': 'devices.view',
   '/mappings': 'mappings.view',
   '/organizations': 'organizations.view',

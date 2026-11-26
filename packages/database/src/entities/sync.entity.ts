@@ -5,6 +5,8 @@ export interface SyncJobEntity extends RowDataPacket {
   organization_id: number;
   device_id: number;
   job_type: string;
+  date_from: string | null;
+  date_to: string | null;
   status: string;
   requested_by: string;
   requested_at: Date;
@@ -36,6 +38,8 @@ export interface CreateSyncJobDto {
   organizationId: number;
   deviceId: number;
   jobType: string;
+  dateFrom?: string | null;
+  dateTo?: string | null;
   requestedBy: string;
   requestedAt?: Date | string;
 }

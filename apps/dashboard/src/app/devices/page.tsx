@@ -237,6 +237,24 @@ export default function DevicesPage() {
     return () => clearInterval(id);
   }, [isModalOpen, fetchFleet]);
 
+  // Drawer UX: Escape closes an open drawer and the body scroll is locked.
+  useEffect(() => {
+    const anyOpen = isModalOpen || deleteConfirmId !== null;
+    if (!anyOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (!isSubmitting) setIsModalOpen(false);
+      if (!isDeleting) setDeleteConfirmId(null);
+    };
+    document.addEventListener('keydown', onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [isModalOpen, deleteConfirmId, isSubmitting, isDeleting]);
+
   // Open modal for new registration
   const handleOpenRegister = () => {
     setIsEditing(false);
@@ -608,15 +626,17 @@ export default function DevicesPage() {
         const offline = total - online;
         const availability = total > 0 ? Math.round((online / total) * 100) : 100;
         const vendors = [...new Set(devices.map((d) => d.vendor).filter(Boolean))];
-        const vendorLabel = vendors
-          .map((v) => v.charAt(0) + v.slice(1).toLowerCase())
-          .join(', ');
+        const vendorLabel = vendors.map((v) => v.charAt(0) + v.slice(1).toLowerCase()).join(', ');
         return (
           <div className="grid gap-3 sm:grid-cols-3">
             <StatTile
               title="Total Terminals"
               value={`${total}`}
-              delta={vendors.length ? `${vendors.length} vendor${vendors.length > 1 ? 's' : ''}` : undefined}
+              delta={
+                vendors.length
+                  ? `${vendors.length} vendor${vendors.length > 1 ? 's' : ''}`
+                  : undefined
+              }
               deltaType="neutral"
               hint={vendorLabel || 'registered'}
               icon={Cpu}
@@ -936,10 +956,22 @@ export default function DevicesPage() {
 
       {/* Dynamic Registration & Edit Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="w-full max-w-xl bg-card border border-border/80 rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            {/* Modal Header */}
-            <div className="p-4 border-b border-border/60 flex items-center justify-between bg-muted/20">
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200"
+            onClick={() => setIsModalOpen(false)}
+            aria-hidden="true"
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={
+              isEditing ? 'Edit hardware biometric terminal' : 'Register hardware biometric device'
+            }
+            className="relative h-full w-full max-w-xl bg-card border-l border-border shadow-2xl flex flex-col animate-in slide-in-from-right-[100%] duration-300 ease-out"
+          >
+            {/* Drawer Header */}
+            <div className="p-4 border-b border-border/60 flex items-center justify-between bg-muted/20 shrink-0">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 rounded-lg bg-primary/10 text-primary border border-primary/20">
                   <Cpu className="h-5 w-5" />
@@ -965,266 +997,270 @@ export default function DevicesPage() {
               </Button>
             </div>
 
-            {/* Modal Form */}
-            <form onSubmit={handleFormSubmit} className="p-5 space-y-4 overflow-y-auto flex-1">
-              {/* Vendor Selection */}
-              <div>
-                <label className="text-xs font-semibold text-foreground mb-1.5 block">
-                  Hardware Vendor Platform <span className="text-rose-500 font-bold">*</span>
-                </label>
-                <div className="grid grid-cols-4 gap-2">
-                  {(['HIKVISION', 'ZKTECO', 'SUPREMA', 'ANVIZ'] as const).map((v) => (
-                    <button
-                      key={v}
-                      type="button"
-                      onClick={() => handleVendorSelect(v)}
-                      className={`p-2 rounded-lg border text-xs font-medium flex flex-col items-center gap-1 transition-all ${
-                        formVendor === v
-                          ? 'border-primary bg-primary/10 text-primary ring-1 ring-primary'
-                          : 'border-border/60 bg-muted/20 hover:bg-muted/40 text-muted-foreground'
-                      }`}
-                    >
-                      <span className="font-bold tracking-wider text-[11px]">{v}</span>
-                      <span className="text-[9px] opacity-75 font-mono text-center">
-                        {v === 'HIKVISION'
-                          ? 'ISAPI (Face/Card)'
-                          : v === 'ZKTECO'
-                            ? 'Standalone/ADMS'
-                            : v === 'SUPREMA'
-                              ? 'G-SDK Gateway'
-                              : 'CrossChex/Push'}
-                      </span>
-                    </button>
-                  ))}
+            {/* Drawer Form */}
+            <form onSubmit={handleFormSubmit} className="flex flex-col flex-1 min-h-0">
+              <div className="flex-1 overflow-y-auto p-5 space-y-4">
+                {/* Vendor Selection */}
+                <div>
+                  <label className="text-xs font-semibold text-foreground mb-1.5 block">
+                    Hardware Vendor Platform <span className="text-rose-500 font-bold">*</span>
+                  </label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {(['HIKVISION', 'ZKTECO', 'SUPREMA', 'ANVIZ'] as const).map((v) => (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() => handleVendorSelect(v)}
+                        className={`p-2 rounded-lg border text-xs font-medium flex flex-col items-center gap-1 transition-all ${
+                          formVendor === v
+                            ? 'border-primary bg-primary/10 text-primary ring-1 ring-primary'
+                            : 'border-border/60 bg-muted/20 hover:bg-muted/40 text-muted-foreground'
+                        }`}
+                      >
+                        <span className="font-bold tracking-wider text-[11px]">{v}</span>
+                        <span className="text-[9px] opacity-75 font-mono text-center">
+                          {v === 'HIKVISION'
+                            ? 'ISAPI (Face/Card)'
+                            : v === 'ZKTECO'
+                              ? 'Standalone/ADMS'
+                              : v === 'SUPREMA'
+                                ? 'G-SDK Gateway'
+                                : 'CrossChex/Push'}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
 
-              {/* Basic Details with Asterisks */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-semibold text-foreground mb-1 block">
-                    Device Name <span className="text-rose-500 font-bold">*</span>
-                  </label>
-                  <Input
-                    required
-                    value={formName}
-                    onChange={(e) => setFormName(e.target.value)}
-                    placeholder="e.g. HQ Turnstile 02 (Exit Face Term)"
-                    className="h-8 text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-semibold text-foreground mb-1 block">
-                    Device Code (ID) <span className="text-rose-500 font-bold">*</span>
-                  </label>
-                  <Input
-                    required
-                    value={formCode}
-                    onChange={(e) => setFormCode(e.target.value)}
-                    placeholder="e.g. DEV-HQ-HIK01"
-                    className="h-8 text-xs font-mono"
-                  />
-                </div>
-              </div>
-
-              {/* Network Parameters */}
-              <div className="grid grid-cols-3 gap-3">
-                <div className="col-span-2">
-                  <label className="text-xs font-semibold text-foreground mb-1 flex items-center gap-1">
-                    <Globe className="h-3 w-3 text-muted-foreground" /> IP / Host Address{' '}
-                    <span className="text-rose-500 font-bold">*</span>
-                  </label>
-                  <Input
-                    required
-                    value={formHost}
-                    onChange={(e) => setFormHost(e.target.value)}
-                    placeholder="192.168.100.186"
-                    className="h-8 text-xs font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-semibold text-foreground mb-1 flex items-center gap-1">
-                    <Server className="h-3 w-3 text-muted-foreground" /> Port{' '}
-                    <span className="text-rose-500 font-bold">*</span>
-                  </label>
-                  <Input
-                    required
-                    type="number"
-                    value={formPort}
-                    onChange={(e) => setFormPort(e.target.value)}
-                    placeholder="80"
-                    className="h-8 text-xs font-mono"
-                  />
-                </div>
-              </div>
-              <p className="text-[11px] text-muted-foreground -mt-2">
-                {formVendor === 'HIKVISION' && (
-                  <>
-                    💡 <span className="text-sky-500 font-semibold">Hikvision Tip:</span> HTTP ISAPI
-                    operates on <strong>Port 80</strong>. (Port 8000 in SADP is the command SDK
-                    port).
-                  </>
-                )}
-                {formVendor === 'ZKTECO' && (
-                  <>
-                    💡 <span className="text-emerald-500 font-semibold">ZKTeco Tip:</span> ADMS Push
-                    operates on <strong>Port 80 / 4000</strong>. Set ADMS Web Server IP in device
-                    menu to <code>/iclock/cdata</code>.
-                  </>
-                )}
-                {formVendor === 'SUPREMA' && (
-                  <>
-                    💡 <span className="text-purple-500 font-semibold">Suprema Tip:</span> Enter the
-                    terminal IP. The device port is <strong>51211</strong> (or{' '}
-                    <strong>51213</strong> for SSL). Requires the Suprema{' '}
-                    <strong>G-SDK Device Gateway</strong> running (BioStar 2 not required).
-                  </>
-                )}
-                {formVendor === 'ANVIZ' && (
-                  <>
-                    💡 <span className="text-amber-500 font-semibold">Anviz Tip:</span> CrossChex
-                    Push / TCP operates on <strong>Port 5010 / 80</strong>. Set Push Server IP in
-                    device menu to collector endpoint.
-                  </>
-                )}
-              </p>
-
-              {/* Hardware Model & Ingestion Mode */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-semibold text-foreground mb-1 block">
-                    Terminal Model
-                  </label>
-                  <Input
-                    value={formModel}
-                    onChange={(e) => setFormModel(e.target.value)}
-                    placeholder="e.g. DS-K1T321MFWX"
-                    className="h-8 text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-semibold text-foreground mb-1 flex items-center gap-1">
-                    <Radio className="h-3 w-3 text-muted-foreground" /> Ingestion Mode{' '}
-                    <span className="text-rose-500 font-bold">*</span>
-                  </label>
-                  <select
-                    value={formConnectionMode}
-                    onChange={(e) =>
-                      setFormConnectionMode(e.target.value as 'PUSH' | 'PULL' | 'REALTIME')
-                    }
-                    className="w-full h-8 text-xs rounded-md border border-input bg-background px-2 text-foreground"
-                  >
-                    <option value="PUSH">PUSH (Alert Stream / HTTP Push)</option>
-                    <option value="PULL">PULL (Scheduled Log Polling)</option>
-                    <option value="REALTIME">REALTIME (WebSocket Stream)</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Authentication Credentials with Asterisks */}
-              <div className="p-3 rounded-lg border border-border/60 bg-muted/20 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                    <KeyRound className="h-3.5 w-3.5 text-amber-400" /> Device Authentication (ISAPI
-                    / SDK)
-                  </span>
-                  <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={formUseHttps}
-                      onChange={(e) => setFormUseHttps(e.target.checked)}
-                      className="rounded border-border"
+                {/* Basic Details with Asterisks */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-semibold text-foreground mb-1 block">
+                      Device Name <span className="text-rose-500 font-bold">*</span>
+                    </label>
+                    <Input
+                      required
+                      value={formName}
+                      onChange={(e) => setFormName(e.target.value)}
+                      placeholder="e.g. HQ Turnstile 02 (Exit Face Term)"
+                      className="h-8 text-xs"
                     />
-                    Use HTTPS (SSL)
-                  </label>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-foreground mb-1 block">
+                      Device Code (ID) <span className="text-rose-500 font-bold">*</span>
+                    </label>
+                    <Input
+                      required
+                      value={formCode}
+                      onChange={(e) => setFormCode(e.target.value)}
+                      placeholder="e.g. DEV-HQ-HIK01"
+                      className="h-8 text-xs font-mono"
+                    />
+                  </div>
                 </div>
 
-                {formVendor === 'SUPREMA' ? (
-                  <p className="text-[11px] text-muted-foreground">
-                    🔒{' '}
-                    <span className="text-purple-500 font-semibold">Not required for Suprema.</span>{' '}
-                    The G-SDK gateway authenticates to the terminal over the encrypted Suprema
-                    protocol — no device username/password needed. Leave blank.
-                  </p>
-                ) : (
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-[11px] text-muted-foreground mb-1 block">
-                        Username <span className="text-rose-500 font-bold">*</span>
-                      </label>
-                      <Input
-                        required
-                        value={formUsername}
-                        onChange={(e) => setFormUsername(e.target.value)}
-                        placeholder="admin"
-                        className="h-8 text-xs bg-background/50"
+                {/* Network Parameters */}
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="col-span-2">
+                    <label className="text-xs font-semibold text-foreground mb-1 flex items-center gap-1">
+                      <Globe className="h-3 w-3 text-muted-foreground" /> IP / Host Address{' '}
+                      <span className="text-rose-500 font-bold">*</span>
+                    </label>
+                    <Input
+                      required
+                      value={formHost}
+                      onChange={(e) => setFormHost(e.target.value)}
+                      placeholder="192.168.100.186"
+                      className="h-8 text-xs font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-foreground mb-1 flex items-center gap-1">
+                      <Server className="h-3 w-3 text-muted-foreground" /> Port{' '}
+                      <span className="text-rose-500 font-bold">*</span>
+                    </label>
+                    <Input
+                      required
+                      type="number"
+                      value={formPort}
+                      onChange={(e) => setFormPort(e.target.value)}
+                      placeholder="80"
+                      className="h-8 text-xs font-mono"
+                    />
+                  </div>
+                </div>
+                <p className="text-[11px] text-muted-foreground -mt-2">
+                  {formVendor === 'HIKVISION' && (
+                    <>
+                      💡 <span className="text-sky-500 font-semibold">Hikvision Tip:</span> HTTP
+                      ISAPI operates on <strong>Port 80</strong>. (Port 8000 in SADP is the command
+                      SDK port).
+                    </>
+                  )}
+                  {formVendor === 'ZKTECO' && (
+                    <>
+                      💡 <span className="text-emerald-500 font-semibold">ZKTeco Tip:</span> ADMS
+                      Push operates on <strong>Port 80 / 4000</strong>. Set ADMS Web Server IP in
+                      device menu to <code>/iclock/cdata</code>.
+                    </>
+                  )}
+                  {formVendor === 'SUPREMA' && (
+                    <>
+                      💡 <span className="text-purple-500 font-semibold">Suprema Tip:</span> Enter
+                      the terminal IP. The device port is <strong>51211</strong> (or{' '}
+                      <strong>51213</strong> for SSL). Requires the Suprema{' '}
+                      <strong>G-SDK Device Gateway</strong> running (BioStar 2 not required).
+                    </>
+                  )}
+                  {formVendor === 'ANVIZ' && (
+                    <>
+                      💡 <span className="text-amber-500 font-semibold">Anviz Tip:</span> CrossChex
+                      Push / TCP operates on <strong>Port 5010 / 80</strong>. Set Push Server IP in
+                      device menu to collector endpoint.
+                    </>
+                  )}
+                </p>
+
+                {/* Hardware Model & Ingestion Mode */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-semibold text-foreground mb-1 block">
+                      Terminal Model
+                    </label>
+                    <Input
+                      value={formModel}
+                      onChange={(e) => setFormModel(e.target.value)}
+                      placeholder="e.g. DS-K1T321MFWX"
+                      className="h-8 text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-foreground mb-1 flex items-center gap-1">
+                      <Radio className="h-3 w-3 text-muted-foreground" /> Ingestion Mode{' '}
+                      <span className="text-rose-500 font-bold">*</span>
+                    </label>
+                    <select
+                      value={formConnectionMode}
+                      onChange={(e) =>
+                        setFormConnectionMode(e.target.value as 'PUSH' | 'PULL' | 'REALTIME')
+                      }
+                      className="w-full h-8 text-xs rounded-md border border-input bg-background px-2 text-foreground"
+                    >
+                      <option value="PUSH">PUSH (Alert Stream / HTTP Push)</option>
+                      <option value="PULL">PULL (Scheduled Log Polling)</option>
+                      <option value="REALTIME">REALTIME (WebSocket Stream)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Authentication Credentials with Asterisks */}
+                <div className="p-3 rounded-lg border border-border/60 bg-muted/20 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                      <KeyRound className="h-3.5 w-3.5 text-amber-400" /> Device Authentication
+                      (ISAPI / SDK)
+                    </span>
+                    <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formUseHttps}
+                        onChange={(e) => setFormUseHttps(e.target.checked)}
+                        className="rounded border-border"
                       />
-                    </div>
-                    <div>
-                      <label className="text-[11px] text-muted-foreground mb-1 block">
-                        Password / CommKey <span className="text-rose-500 font-bold">*</span>
-                      </label>
-                      <div className="relative">
+                      Use HTTPS (SSL)
+                    </label>
+                  </div>
+
+                  {formVendor === 'SUPREMA' ? (
+                    <p className="text-[11px] text-muted-foreground">
+                      🔒{' '}
+                      <span className="text-purple-500 font-semibold">
+                        Not required for Suprema.
+                      </span>{' '}
+                      The G-SDK gateway authenticates to the terminal over the encrypted Suprema
+                      protocol — no device username/password needed. Leave blank.
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[11px] text-muted-foreground mb-1 block">
+                          Username <span className="text-rose-500 font-bold">*</span>
+                        </label>
                         <Input
                           required
-                          type={showPassword ? 'text' : 'password'}
-                          value={formPassword}
-                          onChange={(e) => setFormPassword(e.target.value)}
-                          placeholder="uno@6488"
-                          className="h-8 text-xs bg-background/50 pr-8"
+                          value={formUsername}
+                          onChange={(e) => setFormUsername(e.target.value)}
+                          placeholder="admin"
+                          className="h-8 text-xs bg-background/50"
                         />
-                        <button
-                          type="button"
-                          onClick={() => setShowPassword(!showPassword)}
-                          className="absolute right-2 top-2 text-muted-foreground hover:text-foreground"
-                        >
-                          {showPassword ? (
-                            <EyeOff className="h-3.5 w-3.5" />
-                          ) : (
-                            <Eye className="h-3.5 w-3.5" />
-                          )}
-                        </button>
+                      </div>
+                      <div>
+                        <label className="text-[11px] text-muted-foreground mb-1 block">
+                          Password / CommKey <span className="text-rose-500 font-bold">*</span>
+                        </label>
+                        <div className="relative">
+                          <Input
+                            required
+                            type={showPassword ? 'text' : 'password'}
+                            value={formPassword}
+                            onChange={(e) => setFormPassword(e.target.value)}
+                            placeholder="uno@6488"
+                            className="h-8 text-xs bg-background/50 pr-8"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword(!showPassword)}
+                            className="absolute right-2 top-2 text-muted-foreground hover:text-foreground"
+                          >
+                            {showPassword ? (
+                              <EyeOff className="h-3.5 w-3.5" />
+                            ) : (
+                              <Eye className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                        </div>
                       </div>
                     </div>
+                  )}
+                </div>
+
+                {/* Probe Test Feedback */}
+                {modalTestResult && (
+                  <div
+                    className={`p-3 rounded-lg border text-xs flex items-start gap-2.5 ${
+                      modalTestResult.success
+                        ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
+                        : 'bg-rose-950/40 border-rose-500/40 text-rose-300'
+                    }`}
+                  >
+                    {modalTestResult.success ? (
+                      <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertCircle className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />
+                    )}
+                    <div className="space-y-0.5">
+                      <div className="font-semibold">{modalTestResult.message}</div>
+                      {modalTestResult.serial && (
+                        <div className="text-[10px] opacity-80 font-mono">
+                          Serial: {modalTestResult.serial} | Firmware: {modalTestResult.firmware}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Form Submission Error Feedback */}
+                {modalSubmitError && (
+                  <div className="p-3 rounded-lg border border-rose-500/50 bg-rose-950/50 text-rose-200 text-xs flex items-center gap-2.5 animate-in fade-in">
+                    <AlertCircle className="h-4 w-4 text-rose-400 shrink-0" />
+                    <span className="font-medium">{modalSubmitError}</span>
                   </div>
                 )}
               </div>
 
-              {/* Probe Test Feedback */}
-              {modalTestResult && (
-                <div
-                  className={`p-3 rounded-lg border text-xs flex items-start gap-2.5 ${
-                    modalTestResult.success
-                      ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
-                      : 'bg-rose-950/40 border-rose-500/40 text-rose-300'
-                  }`}
-                >
-                  {modalTestResult.success ? (
-                    <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
-                  ) : (
-                    <AlertCircle className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />
-                  )}
-                  <div className="space-y-0.5">
-                    <div className="font-semibold">{modalTestResult.message}</div>
-                    {modalTestResult.serial && (
-                      <div className="text-[10px] opacity-80 font-mono">
-                        Serial: {modalTestResult.serial} | Firmware: {modalTestResult.firmware}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Form Submission Error Feedback */}
-              {modalSubmitError && (
-                <div className="p-3 rounded-lg border border-rose-500/50 bg-rose-950/50 text-rose-200 text-xs flex items-center gap-2.5 animate-in fade-in">
-                  <AlertCircle className="h-4 w-4 text-rose-400 shrink-0" />
-                  <span className="font-medium">{modalSubmitError}</span>
-                </div>
-              )}
-
-              {/* Modal Actions */}
-              <div className="flex items-center justify-between pt-2 border-t border-border/60">
+              {/* Drawer Actions (sticky footer) */}
+              <div className="flex items-center justify-between gap-2 border-t border-border/60 bg-muted/20 p-3 shrink-0">
                 <Button
                   type="button"
                   variant="outline"
@@ -1267,21 +1303,42 @@ export default function DevicesPage() {
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
+      {/* Delete Confirmation Drawer */}
       {deleteConfirmId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-150">
-          <div className="w-full max-w-sm bg-card border border-border/80 rounded-xl p-5 shadow-2xl space-y-4">
-            <div className="flex items-center gap-3 text-rose-400">
-              <div className="p-2 rounded-lg bg-rose-950/50 border border-rose-500/30">
-                <Trash2 className="h-5 w-5" />
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm animate-in fade-in duration-150"
+            onClick={() => !isDeleting && setDeleteConfirmId(null)}
+            aria-hidden="true"
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Confirm terminal deletion"
+            className="relative h-full w-full max-w-md bg-card border-l border-border shadow-2xl flex flex-col animate-in slide-in-from-right-[100%] duration-300 ease-out"
+          >
+            <div className="p-4 border-b border-border/60 flex items-center justify-between bg-muted/20 shrink-0">
+              <div className="flex items-center gap-3 text-rose-400">
+                <div className="p-2 rounded-lg bg-rose-950/50 border border-rose-500/30">
+                  <Trash2 className="h-5 w-5" />
+                </div>
+                <h3 className="text-sm font-bold text-foreground">Confirm Terminal Deletion</h3>
               </div>
-              <h3 className="text-sm font-bold text-foreground">Confirm Terminal Deletion</h3>
+              <button
+                onClick={() => !isDeleting && setDeleteConfirmId(null)}
+                aria-label="Close"
+                className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Are you sure you want to remove this hardware terminal from the fleet? Historical
-              attendance logs will be preserved in the database.
-            </p>
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-border/60">
+            <div className="flex-1 overflow-y-auto p-4">
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Are you sure you want to remove this hardware terminal from the fleet? Historical
+                attendance logs will be preserved in the database.
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-border/60 bg-muted/20 p-3 shrink-0">
               <Button
                 variant="ghost"
                 size="sm"

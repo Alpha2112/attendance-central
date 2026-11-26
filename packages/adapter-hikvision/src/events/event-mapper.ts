@@ -40,10 +40,12 @@ export function mapHikvisionEventToRawAttendance(
   record: HikvisionAcsEventRecord,
   source: EventSource = EventSource.PULL,
 ): RawAttendanceEvent {
-  const userId =
-    record.employeeNoString ||
-    record.cardNo ||
-    (record.serialNo ? String(record.serialNo) : 'UNKNOWN_USER');
+  // The enrolled biometric user id (or card). We deliberately do NOT fall back to
+  // the event serial number — a record with neither is a non-identity access event
+  // (door relay, exit button, remote unlock…), not a person's punch. Marking it
+  // UNKNOWN_USER lets downstream consumers skip it instead of inventing a fake
+  // employee from the serial number.
+  const userId = record.employeeNoString || record.cardNo || 'UNKNOWN_USER';
 
   // Convert device time to ISO UTC
   const parsedDate = new Date(record.time);

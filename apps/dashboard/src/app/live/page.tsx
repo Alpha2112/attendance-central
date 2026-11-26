@@ -56,7 +56,6 @@ export default function LiveStreamPage() {
   const [punches, setPunches] = useState<LivePunch[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedPunch, setSelectedPunch] = useState<LivePunch | null>(null);
-  const [isSyncing, setIsSyncing] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
   const [copiedFingerprint, setCopiedFingerprint] = useState(false);
 
@@ -100,33 +99,20 @@ export default function LiveStreamPage() {
     return () => clearInterval(interval);
   }, [isLive, fetchLivePunches]);
 
-  const handleSyncRealTerminal = async () => {
-    setIsSyncing(true);
-    setSyncFeedback(null);
-    try {
-      // Device is resolved server-side from the registry (no hard-coded code).
-      const res = await fetch('/api/punches/sync', { method: 'POST' });
-      const data = await res.json();
-      if (data.deviceCount === 0) {
-        setSyncFeedback(
-          'ℹ No pull-based (Hikvision) terminal registered. Suprema streams live and back-fills on reconnect.',
-        );
-      } else if (data.success) {
-        setSyncFeedback(
-          `⚡ Synced ${data.syncedCount} hardware events across ${data.deviceCount} terminal(s). ${data.newCount} new ingested, ${data.duplicateCount} duplicates safely deduplicated.`,
-        );
-        fetchLivePunches();
-      } else {
-        setSyncFeedback(`Sync failed: ${data.message || data.error?.message || 'Unknown error'}`);
-        fetchLivePunches();
-      }
-    } catch (err: unknown) {
-      setSyncFeedback(err instanceof Error ? err.message : 'Failed to reach physical terminal');
-    } finally {
-      setIsSyncing(false);
-      setTimeout(() => setSyncFeedback(null), 8000);
-    }
-  };
+  // Inspector drawer UX: Escape closes it and the body scroll is locked while open.
+  useEffect(() => {
+    if (!selectedPunch) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSelectedPunch(null);
+    };
+    document.addEventListener('keydown', onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [selectedPunch]);
 
   const handleSimulateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -199,19 +185,6 @@ export default function LiveStreamPage() {
 
         {/* Global Action Buttons */}
         <div className="flex flex-wrap items-center gap-2">
-          <Can perm="punches.sync">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleSyncRealTerminal}
-              disabled={isSyncing}
-              className="border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20 font-medium"
-            >
-              <Zap className={`h-4 w-4 mr-1.5 ${isSyncing ? 'animate-pulse' : ''}`} />
-              {isSyncing ? 'Pulling ISAPI Events...' : 'Sync Real Terminal (Hikvision)'}
-            </Button>
-          </Can>
-
           <Can perm="punches.simulate">
             <Button
               variant="outline"
@@ -335,11 +308,11 @@ export default function LiveStreamPage() {
           <Table>
             <TableHeader>
               <TableRow className="border-border/80 bg-muted/20 text-xs">
-                <TableHead className="w-[220px] font-semibold">Employee</TableHead>
+                <TableHead className="w-[200px] font-semibold">Employee</TableHead>
+                <TableHead className="font-semibold">Department</TableHead>
                 <TableHead className="font-semibold">Terminal & Vendor</TableHead>
                 <TableHead className="text-center font-semibold">Verification</TableHead>
                 <TableHead className="font-semibold">Timestamp</TableHead>
-                <TableHead className="font-semibold">Fingerprint</TableHead>
                 <TableHead className="text-right font-semibold">Inspect</TableHead>
               </TableRow>
             </TableHeader>
@@ -359,7 +332,7 @@ export default function LiveStreamPage() {
                       <div className="font-semibold text-foreground">No Live Punches Buffered</div>
                       <div className="text-xs text-muted-foreground">
                         Ready for testing! Present your face, card, or fingerprint on a registered
-                        terminal, then click <strong>Sync Real Terminal</strong> (Hikvision). Suprema
+                        terminal, then use <strong>Manual Sync</strong> (Hikvision). Suprema
                         terminals stream live automatically.
                       </div>
                     </div>
@@ -373,10 +346,9 @@ export default function LiveStreamPage() {
                   >
                     <TableCell>
                       <div className="font-medium text-foreground">{p.employeeName}</div>
-                      <div className="text-xs text-muted-foreground font-mono">
-                        {p.employeeId} <span className="opacity-40">•</span> {p.department}
-                      </div>
+                      <div className="text-xs text-muted-foreground font-mono">{p.employeeId}</div>
                     </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{p.department}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <Badge
@@ -412,11 +384,6 @@ export default function LiveStreamPage() {
                         {p.punchTimeUtc}
                       </div>
                     </TableCell>
-                    <TableCell>
-                      <span className="font-mono text-xs text-muted-foreground">
-                        {p.fingerprint ? `${p.fingerprint.slice(0, 16)}...` : '—'}
-                      </span>
-                    </TableCell>
                     <TableCell className="text-right">
                       <Button
                         variant="ghost"
@@ -435,108 +402,131 @@ export default function LiveStreamPage() {
         </CardContent>
       </Card>
 
-      {/* Normalized Event Inspector Modal */}
+      {/* Normalized Event Inspector Drawer */}
       {selectedPunch && (
-        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-card border border-border rounded-xl shadow-2xl max-w-2xl w-full p-6 space-y-5 animate-in fade-in zoom-in-95">
-            <div className="flex items-center justify-between border-b border-border/60 pb-4">
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200"
+            onClick={() => setSelectedPunch(null)}
+            aria-hidden="true"
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Normalized punch event inspector"
+            className="relative h-full w-full max-w-xl bg-card border-l border-border shadow-2xl flex flex-col animate-in slide-in-from-right-[100%] duration-300 ease-out"
+          >
+            <div className="p-4 border-b border-border/60 flex items-center justify-between bg-muted/20 shrink-0">
               <div className="flex items-center gap-3">
                 <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400">
                   <ShieldCheck className="h-5 w-5" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-foreground text-base">
+                  <h3 className="font-semibold text-foreground text-sm">
                     Normalized Punch Event Inspector
                   </h3>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-[11px] text-muted-foreground">
                     Event ID: <span className="font-mono text-foreground">{selectedPunch.id}</span>{' '}
                     • Partition:{' '}
                     <span className="font-mono text-foreground">{selectedPunch.eventDate}</span>
                   </p>
                 </div>
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
+              <button
                 onClick={() => setSelectedPunch(null)}
-                className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                aria-label="Close"
+                className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
               >
                 <X className="h-4 w-4" />
-              </Button>
+              </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 text-xs">
-              <div className="p-3.5 rounded-lg bg-muted/20 border border-border/60 space-y-1">
-                <div className="text-muted-foreground font-semibold">EMPLOYEE DETAILS</div>
-                <div className="font-bold text-foreground text-sm">
-                  {selectedPunch.employeeName}
-                </div>
-                <div className="text-muted-foreground font-mono">
-                  HRMS ID: {selectedPunch.employeeId}
-                </div>
-                <div className="text-muted-foreground">Department: {selectedPunch.department}</div>
-                {selectedPunch.cardNo && (
-                  <div className="text-muted-foreground font-mono">
-                    Card: {selectedPunch.cardNo}
+            <div className="flex-1 overflow-y-auto p-4 space-y-5">
+              <div className="grid grid-cols-2 gap-4 text-xs">
+                <div className="p-3.5 rounded-lg bg-muted/20 border border-border/60 space-y-1">
+                  <div className="text-muted-foreground font-semibold">EMPLOYEE DETAILS</div>
+                  <div className="font-bold text-foreground text-sm">
+                    {selectedPunch.employeeName}
                   </div>
-                )}
-              </div>
-
-              <div className="p-3.5 rounded-lg bg-muted/20 border border-border/60 space-y-1">
-                <div className="text-muted-foreground font-semibold">TERMINAL HARDWARE</div>
-                <div className="font-bold text-foreground text-sm">{selectedPunch.deviceName}</div>
-                <div className="text-muted-foreground font-mono">
-                  Device Code: {selectedPunch.deviceCode}
+                  <div className="text-muted-foreground font-mono">
+                    HRMS ID: {selectedPunch.employeeId}
+                  </div>
+                  <div className="text-muted-foreground">
+                    Department: {selectedPunch.department}
+                  </div>
+                  {selectedPunch.cardNo && (
+                    <div className="text-muted-foreground font-mono">
+                      Card: {selectedPunch.cardNo}
+                    </div>
+                  )}
                 </div>
-                <div className="text-muted-foreground">Vendor: {selectedPunch.vendor} (ISAPI)</div>
-                <div className="text-muted-foreground">Source: {selectedPunch.source}</div>
+
+                <div className="p-3.5 rounded-lg bg-muted/20 border border-border/60 space-y-1">
+                  <div className="text-muted-foreground font-semibold">TERMINAL HARDWARE</div>
+                  <div className="font-bold text-foreground text-sm">
+                    {selectedPunch.deviceName}
+                  </div>
+                  <div className="text-muted-foreground font-mono">
+                    Device Code: {selectedPunch.deviceCode}
+                  </div>
+                  <div className="text-muted-foreground">
+                    Vendor: {selectedPunch.vendor} (ISAPI)
+                  </div>
+                  <div className="text-muted-foreground">Source: {selectedPunch.source}</div>
+                </div>
+              </div>
+
+              {/* SHA-256 Fingerprint */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-muted-foreground">
+                    SHA-256 IDEMPOTENCY FINGERPRINT
+                  </span>
+                  <button
+                    onClick={() => handleCopyFingerprint(selectedPunch.fingerprint)}
+                    className="text-primary hover:underline flex items-center gap-1 text-[11px]"
+                  >
+                    {copiedFingerprint ? (
+                      <Check className="h-3 w-3" />
+                    ) : (
+                      <Copy className="h-3 w-3" />
+                    )}
+                    {copiedFingerprint ? 'Copied' : 'Copy Hash'}
+                  </button>
+                </div>
+                <div className="p-2.5 rounded-lg bg-background font-mono text-[11px] text-emerald-600 dark:text-emerald-400 break-all border border-emerald-500/20 select-all">
+                  {selectedPunch.fingerprint}
+                </div>
+              </div>
+
+              {/* Kafka Topic Payload Snapshot */}
+              <div className="space-y-1.5">
+                <div className="text-xs font-semibold text-muted-foreground">
+                  KAFKA TOPIC PAYLOAD
+                </div>
+                <pre className="p-3 rounded-lg bg-background text-[11px] font-mono text-muted-foreground overflow-x-auto max-h-48 border border-border">
+                  {JSON.stringify(
+                    {
+                      topic: 'attendance.normalized.v1',
+                      eventId: `evt-norm-${selectedPunch.id}`,
+                      organizationId: 'ORG-TECHIVE',
+                      employeeId: selectedPunch.employeeId,
+                      deviceId: selectedPunch.deviceCode,
+                      vendor: selectedPunch.vendor,
+                      punchType: selectedPunch.punchType,
+                      verificationType: selectedPunch.verificationType,
+                      punchTime: selectedPunch.punchTimeUtc,
+                      receivedAt: selectedPunch.receivedAt,
+                      fingerprint: selectedPunch.fingerprint,
+                    },
+                    null,
+                    2,
+                  )}
+                </pre>
               </div>
             </div>
 
-            {/* SHA-256 Fingerprint */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-semibold text-muted-foreground">
-                  SHA-256 IDEMPOTENCY FINGERPRINT
-                </span>
-                <button
-                  onClick={() => handleCopyFingerprint(selectedPunch.fingerprint)}
-                  className="text-primary hover:underline flex items-center gap-1 text-[11px]"
-                >
-                  {copiedFingerprint ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-                  {copiedFingerprint ? 'Copied' : 'Copy Hash'}
-                </button>
-              </div>
-              <div className="p-2.5 rounded-lg bg-background font-mono text-[11px] text-emerald-600 dark:text-emerald-400 break-all border border-emerald-500/20 select-all">
-                {selectedPunch.fingerprint}
-              </div>
-            </div>
-
-            {/* Kafka Topic Payload Snapshot */}
-            <div className="space-y-1.5">
-              <div className="text-xs font-semibold text-muted-foreground">KAFKA TOPIC PAYLOAD</div>
-              <pre className="p-3 rounded-lg bg-background text-[11px] font-mono text-muted-foreground overflow-x-auto max-h-48 border border-border">
-                {JSON.stringify(
-                  {
-                    topic: 'attendance.normalized.v1',
-                    eventId: `evt-norm-${selectedPunch.id}`,
-                    organizationId: 'ORG-TECHIVE',
-                    employeeId: selectedPunch.employeeId,
-                    deviceId: selectedPunch.deviceCode,
-                    vendor: selectedPunch.vendor,
-                    punchType: selectedPunch.punchType,
-                    verificationType: selectedPunch.verificationType,
-                    punchTime: selectedPunch.punchTimeUtc,
-                    receivedAt: selectedPunch.receivedAt,
-                    fingerprint: selectedPunch.fingerprint,
-                  },
-                  null,
-                  2,
-                )}
-              </pre>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2 border-t border-border/60">
+            <div className="border-t border-border/60 bg-muted/20 p-3 flex justify-end shrink-0">
               <Button
                 variant="default"
                 size="sm"

@@ -26,6 +26,17 @@ export interface HikvisionAdapterOptions {
   mockFallback?: boolean;
 }
 
+/** Formats a date/ISO string as Hikvision ISAPI expects: `YYYY-MM-DDThh:mm:ss+00:00`
+ *  (ISO-8601 with an explicit offset, no milliseconds, no bare "Z"). */
+function toIsapiTime(input: string | Date): string {
+  const d = input instanceof Date ? input : new Date(input);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return (
+    `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}` +
+    `T${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}+00:00`
+  );
+}
+
 /**
  * Enterprise Hikvision Device Adapter implementing AttendanceDeviceAdapter & PushAttendanceAdapter.
  */
@@ -219,12 +230,23 @@ export class HikvisionDeviceAdapter implements AttendanceDeviceAdapter, PushAtte
       );
 
       const searchPosition = cursor?.lastLogIndex ?? 0;
+      // Hikvision AcsEvent time search needs ISO-8601 with a timezone offset
+      // (e.g. 2026-11-20T00:00:00+00:00) and requires startTime AND endTime
+      // together — sending only startTime (or a "…000Z" form) is rejected as
+      // badJsonContent. endTime comes from cursor.custom.endTime (manual date
+      // range) or defaults to "now" for incremental pulls.
+      const startTime = cursor?.lastLogTimestamp ? toIsapiTime(cursor.lastLogTimestamp) : undefined;
+      const endRaw = cursor?.custom?.['endTime'];
+      const endTime = startTime
+        ? toIsapiTime(typeof endRaw === 'string' ? endRaw : new Date())
+        : undefined;
       const searchResult = await client.searchAcsEvents({
         searchID: randomUUID(),
         searchResultPosition: searchPosition,
         maxResults: 30,
         major: 5,
-        startTime: cursor?.lastLogTimestamp,
+        startTime,
+        endTime,
       });
 
       const records = searchResult.AcsEvent?.InfoList ?? [];

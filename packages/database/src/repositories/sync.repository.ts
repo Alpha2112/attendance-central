@@ -17,14 +17,46 @@ export class SyncRepository {
     return rows[0] || null;
   }
 
+  /** Lists sync jobs for the history view, newest first, with optional filters. */
+  public async listJobs(filters?: {
+    deviceId?: number;
+    status?: string;
+    jobType?: string;
+    limit?: number;
+  }): Promise<SyncJobEntity[]> {
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    if (filters?.deviceId) {
+      conditions.push('device_id = ?');
+      params.push(filters.deviceId);
+    }
+    if (filters?.status) {
+      conditions.push('status = ?');
+      params.push(filters.status);
+    }
+    if (filters?.jobType) {
+      conditions.push('job_type = ?');
+      params.push(filters.jobType);
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const limit = Math.min(Math.max(filters?.limit ?? 50, 1), 500);
+    params.push(limit);
+    return this.client.query<SyncJobEntity[]>(
+      `SELECT * FROM sync_jobs ${where} ORDER BY requested_at DESC, id DESC LIMIT ?`,
+      params,
+    );
+  }
+
   public async createJob(dto: CreateSyncJobDto): Promise<number> {
     const result = await this.client.query<ResultSetHeader>(
-      `INSERT INTO sync_jobs (organization_id, device_id, job_type, requested_by, requested_at, status)
-       VALUES (?, ?, ?, ?, ?, 'QUEUED')`,
+      `INSERT INTO sync_jobs (organization_id, device_id, job_type, date_from, date_to, requested_by, requested_at, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'QUEUED')`,
       [
         dto.organizationId,
         dto.deviceId,
         dto.jobType,
+        dto.dateFrom ?? null,
+        dto.dateTo ?? null,
         dto.requestedBy,
         dto.requestedAt || new Date(),
       ],

@@ -35,8 +35,8 @@ export class AttendanceLogRepository {
         event_date, tenant_id, organization_id, branch_id, employee_id,
         device_id, vendor, raw_log_id, punch_time, punch_time_utc,
         device_timestamp, received_at, punch_type, verification_type,
-        clock_offset_seconds, source, vendor_event_id, event_fingerprint
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        clock_offset_seconds, source, sync_mode, sync_job_id, vendor_event_id, event_fingerprint
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const params = [
@@ -56,6 +56,8 @@ export class AttendanceLogRepository {
       dto.verificationType,
       dto.clockOffsetSeconds || null,
       dto.source || 'PUSH',
+      dto.syncMode || 'AUTOMATIC',
+      dto.syncJobId ?? null,
       dto.vendorEventId || null,
       dto.eventFingerprint,
     ];

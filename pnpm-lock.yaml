@@ -44,6 +44,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@attendance/adapter-anviz':
+        specifier: workspace:*
+        version: link:../../packages/adapter-anviz
       '@attendance/adapter-hikvision':
         specifier: workspace:*
         version: link:../../packages/adapter-hikvision

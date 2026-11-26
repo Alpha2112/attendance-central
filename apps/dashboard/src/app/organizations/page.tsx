@@ -105,16 +105,16 @@ export default function OrganizationsPage() {
 
   const filteredTenants = useMemo(() => {
     const q = tenantSearch.trim().toLowerCase();
-    return q
-      ? tenants.filter((t) => `${t.name} ${t.code}`.toLowerCase().includes(q))
-      : tenants;
+    return q ? tenants.filter((t) => `${t.name} ${t.code}`.toLowerCase().includes(q)) : tenants;
   }, [tenants, tenantSearch]);
 
   const filteredOrgs = useMemo(() => {
     const q = orgSearch.trim().toLowerCase();
     return q
       ? orgs.filter((o) =>
-          `${o.name} ${o.code} ${o.tenantName ?? ''} ${o.parentName ?? ''}`.toLowerCase().includes(q),
+          `${o.name} ${o.code} ${o.tenantName ?? ''} ${o.parentName ?? ''}`
+            .toLowerCase()
+            .includes(q),
         )
       : orgs;
   }, [orgs, orgSearch]);
@@ -304,7 +304,9 @@ export default function OrganizationsPage() {
 
       {/* Metrics — compact, real registry counts */}
       {(() => {
-        const activeTenants = tenants.filter((t) => (t.status || '').toUpperCase() === 'ACTIVE').length;
+        const activeTenants = tenants.filter(
+          (t) => (t.status || '').toUpperCase() === 'ACTIVE',
+        ).length;
         const assignedOrgs = orgs.filter((o) => o.tenantId != null).length;
         return (
           <div className="grid grid-cols-2 gap-3">
@@ -356,7 +358,11 @@ export default function OrganizationsPage() {
                     />
                   </div>
                   <Can perm="tenants.create">
-                    <Button size="sm" className="h-8 text-xs font-semibold" onClick={() => openCreate('tenant')}>
+                    <Button
+                      size="sm"
+                      className="h-8 text-xs font-semibold"
+                      onClick={() => openCreate('tenant')}
+                    >
                       <Plus className="h-3.5 w-3.5 mr-1" /> Register Tenant
                     </Button>
                   </Can>
@@ -393,7 +399,9 @@ export default function OrganizationsPage() {
                     {filteredTenants.map((t) => (
                       <TableRow key={t.id}>
                         <TableCell className="font-semibold text-foreground">{t.name}</TableCell>
-                        <TableCell className="font-mono text-xs text-muted-foreground">{t.code}</TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground">
+                          {t.code}
+                        </TableCell>
                         <TableCell>
                           <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                             <Link2 className="h-3 w-3" /> {t.organizationCount}
@@ -403,7 +411,9 @@ export default function OrganizationsPage() {
                         <TableCell className="text-right">
                           <RowActions
                             onEdit={() => openEditTenant(t)}
-                            onDelete={() => setDeleting({ kind: 'tenant', id: t.id, label: t.name })}
+                            onDelete={() =>
+                              setDeleting({ kind: 'tenant', id: t.id, label: t.name })
+                            }
                           />
                         </TableCell>
                       </TableRow>
@@ -423,8 +433,8 @@ export default function OrganizationsPage() {
                 <div>
                   <CardTitle className="text-sm font-semibold">Organizations</CardTitle>
                   <CardDescription className="text-xs">
-                    An unlimited-depth tree — nest organizations from the top root down to the deepest
-                    child. Each may also belong to a Tenant.
+                    An unlimited-depth tree — nest organizations from the top root down to the
+                    deepest child. Each may also belong to a Tenant.
                   </CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
@@ -438,7 +448,11 @@ export default function OrganizationsPage() {
                     />
                   </div>
                   <Can perm="organizations.create">
-                    <Button size="sm" className="h-8 text-xs font-semibold" onClick={() => openCreate('org')}>
+                    <Button
+                      size="sm"
+                      className="h-8 text-xs font-semibold"
+                      onClick={() => openCreate('org')}
+                    >
                       <Plus className="h-3.5 w-3.5 mr-1" /> Register Organization
                     </Button>
                   </Can>
@@ -492,7 +506,9 @@ export default function OrganizationsPage() {
                             <span>{o.name}</span>
                           </div>
                         </TableCell>
-                        <TableCell className="font-mono text-xs text-muted-foreground">{o.code}</TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground">
+                          {o.code}
+                        </TableCell>
                         <TableCell className="text-xs">
                           {o.tenantName ? (
                             <span className="text-foreground">{o.tenantName}</span>
@@ -523,9 +539,14 @@ export default function OrganizationsPage() {
           <form onSubmit={submit}>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-base font-bold text-foreground">
-                {modal.id ? 'Edit' : 'Register'} {modal.kind === 'tenant' ? 'Tenant' : 'Organization'}
+                {modal.id ? 'Edit' : 'Register'}{' '}
+                {modal.kind === 'tenant' ? 'Tenant' : 'Organization'}
               </h2>
-              <button type="button" onClick={() => setModal(null)} className="text-muted-foreground hover:text-foreground">
+              <button
+                type="button"
+                onClick={() => setModal(null)}
+                className="text-muted-foreground hover:text-foreground"
+              >
                 <X className="h-4 w-4" />
               </button>
             </div>
@@ -539,7 +560,11 @@ export default function OrganizationsPage() {
                   autoFocus
                 />
               </Field>
-              <Field label="Code" required hint="Sent in the webhook payload; letters, numbers, - and _.">
+              <Field
+                label="Code"
+                required
+                hint="Sent in the webhook payload; letters, numbers, - and _."
+              >
                 <Input
                   value={form.code}
                   onChange={(e) => setForm({ ...form, code: e.target.value })}
@@ -567,8 +592,8 @@ export default function OrganizationsPage() {
                   </select>
                   {modal.id != null && (
                     <p className="text-[11px] text-muted-foreground mt-1">
-                      Its own sub-tree is hidden here — an organization can&apos;t be moved under one of
-                      its own descendants.
+                      Its own sub-tree is hidden here — an organization can&apos;t be moved under
+                      one of its own descendants.
                     </p>
                   )}
                 </Field>
@@ -631,10 +656,13 @@ export default function OrganizationsPage() {
         <Overlay onClose={() => setDeleting(null)}>
           <div className="flex items-center gap-2 mb-3 text-rose-600 dark:text-rose-400">
             <Trash2 className="h-5 w-5" />
-            <h2 className="text-base font-bold">Delete {deleting.kind === 'tenant' ? 'Tenant' : 'Organization'}</h2>
+            <h2 className="text-base font-bold">
+              Delete {deleting.kind === 'tenant' ? 'Tenant' : 'Organization'}
+            </h2>
           </div>
           <p className="text-sm text-muted-foreground">
-            Delete <span className="font-semibold text-foreground">{deleting.label}</span>? This cannot be undone.
+            Delete <span className="font-semibold text-foreground">{deleting.label}</span>? This
+            cannot be undone.
             {deleting.kind === 'tenant' && ' Tenants with organizations cannot be deleted.'}
           </p>
           <div className="flex items-center justify-end gap-2 pt-4">
@@ -760,14 +788,32 @@ function Field({
 }
 
 function Overlay({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+  // Side-drawer chrome: Escape closes it and the body scroll is locked while open.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [onClose]);
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-50 flex justify-end bg-black/70 backdrop-blur-sm animate-in fade-in duration-200"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-md rounded-xl border border-border bg-card p-5 shadow-2xl max-h-[90vh] overflow-y-auto">
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="relative h-full w-full max-w-md bg-card border-l border-border shadow-2xl overflow-y-auto p-5 animate-in slide-in-from-right-[100%] duration-300 ease-out"
+      >
         {children}
       </div>
     </div>
